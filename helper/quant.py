@@ -3,8 +3,9 @@
 
 设计参考 ~/.claude/skills/stock-analyse/SKILL.md（订单引擎版）。
 
-运行环境：必须用 vnpy 的 venv (已带 akshare + talib + pandas)
-    /Users/wepie/github/vnpy/.venv/bin/python helper/quant.py
+运行环境：vnpy 的 venv (已带 akshare + talib + pandas)
+    通过 helper/runtime.py 自动探测：环境变量 STOCKBAR_VNPY_PATH > config.json > ~/github/vnpy 等。
+    手动调试: $(python helper/runtime.py | jq -r .vnpy_python) helper/quant.py
 
 输入：无 (读 portfolio.json)
 输出：单行 JSON 到 stdout

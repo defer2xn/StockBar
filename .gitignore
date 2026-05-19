@@ -15,3 +15,8 @@ helper/__pycache__/
 helper/*.pyc
 .pytest_cache/
 helper/tests/__pycache__/
+
+# 用户数据保险（实际数据在 ~/Library/Application Support/StockBar/，本来就不在 repo 内）
+portfolio.json
+config.json
+持仓.md

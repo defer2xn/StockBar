@@ -9,8 +9,13 @@ final class AppDelegate: NSObject, NSApplicationDelegate {
     private var statusController: StatusItemController?
     private var mainWindowController: MainWindowController?
 
-    /// 旧的 持仓.md 路径（只用于首次迁移）
-    private let legacyMarkdownPath = "/Users/wepie/github/vnpy/持仓.md"
+    /// 旧的 持仓.md 路径（只用于首次迁移）。可通过环境变量 STOCKBAR_LEGACY_MD 覆盖。
+    private var legacyMarkdownPath: String {
+        if let env = ProcessInfo.processInfo.environment["STOCKBAR_LEGACY_MD"], !env.isEmpty {
+            return env
+        }
+        return (NSHomeDirectory() as NSString).appendingPathComponent("github/vnpy/持仓.md")
+    }
 
     func applicationDidFinishLaunching(_ notification: Notification) {
         guard let resources = resourcesDirectory() else {
@@ -92,9 +97,16 @@ final class AppDelegate: NSObject, NSApplicationDelegate {
             }
             candidate.deleteLastPathComponent()
         }
-        let fallback = URL(fileURLWithPath: "/Users/wepie/github/stock-bar")
-        if FileManager.default.fileExists(atPath: fallback.appendingPathComponent("helper/fetch.py").path) {
-            return fallback
+        // 开发时 fallback：从当前工作目录或 $STOCKBAR_PROJECT_ROOT 找
+        if let envRoot = ProcessInfo.processInfo.environment["STOCKBAR_PROJECT_ROOT"] {
+            let url = URL(fileURLWithPath: envRoot)
+            if FileManager.default.fileExists(atPath: url.appendingPathComponent("helper/fetch.py").path) {
+                return url
+            }
+        }
+        let cwd = URL(fileURLWithPath: FileManager.default.currentDirectoryPath)
+        if FileManager.default.fileExists(atPath: cwd.appendingPathComponent("helper/fetch.py").path) {
+            return cwd
         }
         return nil
     }
