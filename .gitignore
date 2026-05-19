@@ -1,0 +1,17 @@
+.DS_Store
+.build/
+.swiftpm/
+build/
+*.xcodeproj/
+DerivedData/
+Package.resolved
+
+# Bundled app output
+StockBar.app/
+
+# Python
+helper/.venv/
+helper/__pycache__/
+helper/*.pyc
+.pytest_cache/
+helper/tests/__pycache__/

@@ -1,0 +1,129 @@
+<?xml version="1.0" encoding="UTF-8"?>
+<svg xmlns="http://www.w3.org/2000/svg" width="1024" height="1024" viewBox="0 0 1024 1024">
+  <defs>
+    <!-- 背景渐变：深邃科技蓝 → 电光蓝 -->
+    <linearGradient id="bg" x1="0" y1="0" x2="1024" y2="1024" gradientUnits="userSpaceOnUse">
+      <stop offset="0" stop-color="#0B1736"/>
+      <stop offset="0.5" stop-color="#1E3A8A"/>
+      <stop offset="1" stop-color="#2563EB"/>
+    </linearGradient>
+
+    <!-- 左上微高光 -->
+    <radialGradient id="topHi" cx="0.18" cy="0.12" r="0.7">
+      <stop offset="0" stop-color="#FFFFFF" stop-opacity="0.18"/>
+      <stop offset="1" stop-color="#FFFFFF" stop-opacity="0"/>
+    </radialGradient>
+
+    <!-- 上升曲线主色 (柔白) -->
+    <linearGradient id="lineGrad" x1="100" y1="800" x2="900" y2="200" gradientUnits="userSpaceOnUse">
+      <stop offset="0" stop-color="#FFFFFF" stop-opacity="0.85"/>
+      <stop offset="1" stop-color="#FFFFFF" stop-opacity="1.0"/>
+    </linearGradient>
+
+    <!-- 曲线下方淡光面积 -->
+    <linearGradient id="lineShadow" x1="0" y1="650" x2="0" y2="950" gradientUnits="userSpaceOnUse">
+      <stop offset="0" stop-color="#FFFFFF" stop-opacity="0.22"/>
+      <stop offset="1" stop-color="#FFFFFF" stop-opacity="0"/>
+    </linearGradient>
+
+    <!-- 末端高光点辉光 -->
+    <radialGradient id="dotGlow" cx="0.5" cy="0.5" r="0.5">
+      <stop offset="0" stop-color="#FFFFFF" stop-opacity="0.75"/>
+      <stop offset="1" stop-color="#FFFFFF" stop-opacity="0"/>
+    </radialGradient>
+
+    <!-- 红色蜡烛 -->
+    <linearGradient id="redCandle" x1="0" y1="0" x2="0" y2="1">
+      <stop offset="0" stop-color="#FF6B6B"/>
+      <stop offset="1" stop-color="#D63636"/>
+    </linearGradient>
+
+    <!-- 绿色蜡烛 -->
+    <linearGradient id="greenCandle" x1="0" y1="0" x2="0" y2="1">
+      <stop offset="0" stop-color="#5EE090"/>
+      <stop offset="1" stop-color="#22A35E"/>
+    </linearGradient>
+
+    <!-- macOS squircle: 圆角 22% 的 rounded rect -->
+    <clipPath id="squircle">
+      <path d="M 225,0
+               L 799,0
+               C 924,0 1024,100 1024,225
+               L 1024,799
+               C 1024,924 924,1024 799,1024
+               L 225,1024
+               C 100,1024 0,924 0,799
+               L 0,225
+               C 0,100 100,0 225,0 Z"/>
+    </clipPath>
+  </defs>
+
+  <g clip-path="url(#squircle)">
+    <!-- 背景 -->
+    <rect width="1024" height="1024" fill="url(#bg)"/>
+    <rect width="1024" height="1024" fill="url(#topHi)"/>
+
+    <!-- 细网格 (极淡，加质感) -->
+    <g stroke="#FFFFFF" stroke-opacity="0.04" stroke-width="1">
+      <line x1="0"   y1="256" x2="1024" y2="256"/>
+      <line x1="0"   y1="512" x2="1024" y2="512"/>
+      <line x1="0"   y1="768" x2="1024" y2="768"/>
+      <line x1="256" y1="0"   x2="256"  y2="1024"/>
+      <line x1="512" y1="0"   x2="512"  y2="1024"/>
+      <line x1="768" y1="0"   x2="768"  y2="1024"/>
+    </g>
+
+    <!-- 上升曲线下方光晕（全幅平铺，自然渐隐） -->
+    <path d="M 0,820
+             C 200,760 360,640 470,560
+             C 580,480 640,470 760,330
+             L 1024,330
+             L 1024,1024
+             L 0,1024 Z"
+          fill="url(#lineShadow)"/>
+
+    <!-- A 股蜡烛 (3 根)：红、绿(高峰)、绿 -->
+    <g transform="translate(228, 0)">
+      <line x1="0" y1="690" x2="0" y2="900" stroke="url(#redCandle)" stroke-width="14" stroke-linecap="round"/>
+      <rect x="-32" y="730" width="64" height="140" rx="6" fill="url(#redCandle)"/>
+    </g>
+    <g transform="translate(448, 0)">
+      <line x1="0" y1="560" x2="0" y2="900" stroke="url(#greenCandle)" stroke-width="14" stroke-linecap="round"/>
+      <rect x="-36" y="600" width="72" height="260" rx="7" fill="url(#greenCandle)"/>
+    </g>
+    <g transform="translate(660, 0)">
+      <line x1="0" y1="620" x2="0" y2="880" stroke="url(#greenCandle)" stroke-width="14" stroke-linecap="round"/>
+      <rect x="-32" y="660" width="64" height="190" rx="6" fill="url(#greenCandle)"/>
+    </g>
+
+    <!-- 主上升曲线 -->
+    <path d="M 140,780
+             C 280,720 360,640 470,560
+             C 580,480 640,470 760,330"
+          fill="none"
+          stroke="url(#lineGrad)"
+          stroke-width="46"
+          stroke-linecap="round"
+          stroke-linejoin="round"/>
+
+    <!-- 末端高光点 + 外辉光 -->
+    <circle cx="760" cy="330" r="80" fill="url(#dotGlow)"/>
+    <circle cx="760" cy="330" r="32" fill="#FFFFFF"/>
+    <circle cx="760" cy="330" r="22" fill="#1E5BFF"/>
+
+    <!-- squircle 内 1px 高光，加立体感 -->
+    <path d="M 225,3
+             L 799,3
+             C 922,3 1021,102 1021,225
+             L 1021,799
+             C 1021,922 922,1021 799,1021
+             L 225,1021
+             C 102,1021 3,922 3,799
+             L 3,225
+             C 3,102 102,3 225,3 Z"
+          fill="none"
+          stroke="#FFFFFF"
+          stroke-opacity="0.12"
+          stroke-width="2"/>
+  </g>
+</svg>

@@ -1,0 +1,13 @@
+# Normalize line endings, Unix LF
+* text=auto eol=lf
+
+# Binary
+*.icns binary
+*.png binary
+*.jpg binary
+*.app binary
+
+# Diff
+*.swift text
+*.py text
+*.md text
