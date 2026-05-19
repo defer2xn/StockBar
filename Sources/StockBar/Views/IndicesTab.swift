@@ -28,6 +28,12 @@ struct IndicesTab: View {
                 if let code = selectedCode { model.requestChart(code: code) }
             }
         }
+        .onReceive(NotificationCenter.default.publisher(for: .switchToIndicesTab)) { note in
+            if let code = note.object as? String {
+                selectedCode = code
+                model.requestChart(code: code)
+            }
+        }
     }
 
     private var indexGrid: some View {

@@ -14,6 +14,8 @@ final class AppModel: ObservableObject {
     @Published private(set) var lastUpdated: String?
     /// snapshot 刷新是否正在进行，用于按钮转圈反馈
     @Published private(set) var isRefreshing: Bool = false
+    /// 「今日」Tab 点击订单 → 量化 Tab 滚动并高亮。消费后由量化 Tab 清空。
+    @Published var quantHighlightOrderId: String?
 
     /// code → 最新一次拉到的新闻列表
     @Published private(set) var newsByCode: [String: [NewsItem]] = [:]

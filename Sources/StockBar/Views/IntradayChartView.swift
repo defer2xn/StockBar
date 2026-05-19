@@ -5,12 +5,15 @@ import Charts
 /// 一条昨收虚线作为参考；涨绿跌红，整体染色。
 struct IntradayChartView: View {
     let data: ChartData
+    var compact: Bool = false
 
     var body: some View {
         VStack(alignment: .leading, spacing: DS.spaceS) {
-            header
+            if !compact {
+                header
+            }
             chart
-                .frame(minHeight: 220)
+                .frame(minHeight: compact ? 60 : 220)
         }
     }
 
@@ -76,33 +79,43 @@ struct IntradayChartView: View {
                         .foregroundStyle(.secondary.opacity(0.5))
                         .lineStyle(StrokeStyle(lineWidth: 1, dash: [3, 3]))
                         .annotation(position: .top, alignment: .trailing) {
-                            Text("昨收 \(String(format: "%.3f", prev))")
-                                .font(.caption2)
-                                .foregroundStyle(.secondary)
-                                .padding(.horizontal, 4)
-                                .background(.regularMaterial, in: Capsule())
+                            if !compact {
+                                Text("昨收 \(String(format: "%.3f", prev))")
+                                    .font(.caption2)
+                                    .foregroundStyle(.secondary)
+                                    .padding(.horizontal, 4)
+                                    .background(.regularMaterial, in: Capsule())
+                            }
                         }
                 }
             }
             .chartXAxis {
-                AxisMarks(values: tickIndicesForLabels()) { value in
-                    AxisGridLine(stroke: StrokeStyle(lineWidth: 0.5, dash: [2, 3]))
-                        .foregroundStyle(.secondary.opacity(0.3))
-                    AxisValueLabel {
-                        if let idx = value.as(Int.self), idx < data.ticks.count {
-                            Text(formatHHMM(data.ticks[idx].time))
-                                .font(.caption2)
-                                .foregroundStyle(.secondary)
+                if compact {
+                    AxisMarks(values: [Int]())
+                } else {
+                    AxisMarks(values: tickIndicesForLabels()) { value in
+                        AxisGridLine(stroke: StrokeStyle(lineWidth: 0.5, dash: [2, 3]))
+                            .foregroundStyle(.secondary.opacity(0.3))
+                        AxisValueLabel {
+                            if let idx = value.as(Int.self), idx < data.ticks.count {
+                                Text(formatHHMM(data.ticks[idx].time))
+                                    .font(.caption2)
+                                    .foregroundStyle(.secondary)
+                            }
                         }
                     }
                 }
             }
             .chartYAxis {
-                AxisMarks(position: .trailing) { _ in
-                    AxisGridLine(stroke: StrokeStyle(lineWidth: 0.5, dash: [2, 3]))
-                        .foregroundStyle(.secondary.opacity(0.3))
-                    AxisValueLabel()
-                        .font(.caption2)
+                if compact {
+                    AxisMarks(values: [Double]())
+                } else {
+                    AxisMarks(position: .trailing) { _ in
+                        AxisGridLine(stroke: StrokeStyle(lineWidth: 0.5, dash: [2, 3]))
+                            .foregroundStyle(.secondary.opacity(0.3))
+                        AxisValueLabel()
+                            .font(.caption2)
+                    }
                 }
             }
             // AreaMark 默认会把 0 纳入 Y 域，导致股价 26 块上下的票被压成一条直线。
@@ -112,7 +125,7 @@ struct IntradayChartView: View {
         }
     }
 
-    /// 计算 Y 轴显示范围：覆盖所有 tick 价格 + 昨收线，再左右各扩 15% 给波动留余量。
+    /// 计算 Y 轴显示范围：覆盖所有 tick 价格 + 昨收线，再左右各扩 8% 给波动留余量。
     private func yDomain() -> ClosedRange<Double> {
         let prices = data.ticks.map(\.price)
         guard let lo = prices.min(), let hi = prices.max(), lo > 0 else {

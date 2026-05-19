@@ -4,7 +4,7 @@ import SwiftUI
 /// 移除原来的顶 TabView，改成 macOS 原生应用形态（类似 Mail / Notes / Stocks）。
 struct MainContentView: View {
     @EnvironmentObject private var model: AppModel
-    @State private var section: SidebarSection? = .holdings
+    @State private var section: SidebarSection? = .today
     @State private var columnVisibility: NavigationSplitViewVisibility = .all
 
     var body: some View {
@@ -16,26 +16,37 @@ struct MainContentView: View {
         }
         .navigationSplitViewStyle(.balanced)
         .frame(minWidth: 980, minHeight: 600)
+        .onReceive(NotificationCenter.default.publisher(for: .switchToQuantTab)) { _ in
+            section = .quant
+        }
+        .onReceive(NotificationCenter.default.publisher(for: .switchToIndicesTab)) { _ in
+            section = .indices
+        }
+        .onReceive(NotificationCenter.default.publisher(for: .switchToNewsTab)) { _ in
+            section = .news
+        }
     }
 
     @ViewBuilder
     private var detail: some View {
         switch section {
+        case .today:     TodayTab()
         case .holdings:  HoldingsTab()
         case .watchlist: WatchlistTab()
         case .indices:   IndicesTab()
         case .news:      NewsTab()
         case .quant:     QuantTab()
-        case .none:      HoldingsTab()
+        case .none:      TodayTab()
         }
     }
 }
 
 enum SidebarSection: Hashable, CaseIterable {
-    case holdings, watchlist, indices, news, quant
+    case today, holdings, watchlist, indices, news, quant
 
     var title: String {
         switch self {
+        case .today:     return "今日"
         case .holdings:  return "持仓"
         case .watchlist: return "自选"
         case .indices:   return "大盘"
@@ -46,6 +57,7 @@ enum SidebarSection: Hashable, CaseIterable {
 
     var symbol: String {
         switch self {
+        case .today:     return "sun.max.fill"
         case .holdings:  return "briefcase.fill"
         case .watchlist: return "star.fill"
         case .indices:   return "chart.bar.fill"

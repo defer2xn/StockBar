@@ -57,6 +57,13 @@ struct NewsTab: View {
         }
         .onAppear(perform: autoSelectFirstStockIfNeeded)
         .onChange(of: allStocks) { _, _ in autoSelectFirstStockIfNeeded() }
+        .onReceive(NotificationCenter.default.publisher(for: .switchToNewsTab)) { note in
+            if let payload = note.object as? NewsJumpPayload {
+                model.selectNewsStock(code: payload.code)
+                model.newsSelectedURL = payload.url
+                model.requestArticle(url: payload.url)
+            }
+        }
     }
 
     /// 进入页面时如果还没选股票，默认选第一只（持仓优先，没持仓就第一个自选）。

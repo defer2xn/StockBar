@@ -121,39 +121,66 @@ struct QuantTab: View {
 
     @ViewBuilder
     private func topPane(_ s: QuantSnapshot) -> some View {
-        ScrollView {
-            VStack(alignment: .leading, spacing: DS.spaceM) {
-                if model.quantLoading {
-                    HStack(spacing: 8) {
-                        ProgressView().controlSize(.small)
-                        Text("后台扫描中…").font(.caption).foregroundStyle(.secondary)
-                    }.padding(.horizontal, DS.spaceXL)
-                }
-                if !s.notes.isEmpty {
-                    HStack(spacing: 8) {
-                        Image(systemName: "info.circle").foregroundColor(.orange)
-                        Text(s.notes.joined(separator: " · "))
-                            .font(.caption).foregroundStyle(.secondary)
-                    }.padding(.horizontal, DS.spaceXL)
-                }
-                if s.orders.isEmpty {
-                    EmptyStateCard(
-                        icon: "tray.fill",
-                        title: "无可成交订单",
-                        hint: "候选未通过短线评分门槛或盈亏比 (≥1.5) 校验；下次刷新再试"
-                    ).padding(.horizontal, DS.spaceXL)
-                } else {
-                    orderTable(sortedOrders)
+        ScrollViewReader { proxy in
+            ScrollView {
+                VStack(alignment: .leading, spacing: DS.spaceM) {
+                    if model.quantLoading {
+                        HStack(spacing: 8) {
+                            ProgressView().controlSize(.small)
+                            Text("后台扫描中…").font(.caption).foregroundStyle(.secondary)
+                        }.padding(.horizontal, DS.spaceXL)
+                    }
+                    if !s.notes.isEmpty {
+                        HStack(spacing: 8) {
+                            Image(systemName: "info.circle").foregroundColor(.orange)
+                            Text(s.notes.joined(separator: " · "))
+                                .font(.caption).foregroundStyle(.secondary)
+                        }.padding(.horizontal, DS.spaceXL)
+                    }
+                    if s.orders.isEmpty {
+                        EmptyStateCard(
+                            icon: "tray.fill",
+                            title: "无可成交订单",
+                            hint: "候选未通过短线评分门槛或盈亏比 (≥1.5) 校验；下次刷新再试"
+                        ).padding(.horizontal, DS.spaceXL)
+                    } else {
+                        orderTable(sortedOrders)
+                            .padding(.horizontal, DS.spaceXL)
+                    }
+                    footerRow(s)
                         .padding(.horizontal, DS.spaceXL)
+                        .padding(.bottom, DS.spaceL)
                 }
-                footerRow(s)
-                    .padding(.horizontal, DS.spaceXL)
-                    .padding(.bottom, DS.spaceL)
+            }
+            .refreshable {
+                model.requestQuant()
+                try? await Task.sleep(nanoseconds: 1_500_000_000)
+            }
+            .onChange(of: model.quantHighlightOrderId) { _, newId in
+                guard let id = newId else { return }
+                // 选中 + 滚动到该行
+                selectedOrderID = id
+                withAnimation(.easeInOut(duration: 0.4)) {
+                    proxy.scrollTo(id, anchor: .center)
+                }
+                // 1 秒后清空 highlight（保留 selectedOrderID 以便详情面板继续展示）
+                DispatchQueue.main.asyncAfter(deadline: .now() + 1.0) {
+                    if model.quantHighlightOrderId == id {
+                        model.quantHighlightOrderId = nil
+                    }
+                }
             }
         }
-        .refreshable {
-            model.requestQuant()
-            try? await Task.sleep(nanoseconds: 1_500_000_000)
+    }
+
+    @ViewBuilder
+    private func highlightBg(for id: String) -> some View {
+        if model.quantHighlightOrderId == id {
+            RoundedRectangle(cornerRadius: 6)
+                .fill(DS.accent.opacity(0.18))
+                .transition(.opacity)
+        } else {
+            Color.clear
         }
     }
 
@@ -188,6 +215,8 @@ struct QuantTab: View {
 
             ForEach(Array(orders.enumerated()), id: \.element.id) { idx, o in
                 OrderRow(index: idx + 1, order: o, selected: selectedOrderID == o.id)
+                    .id(o.id)
+                    .background(highlightBg(for: o.id))
                     .onTapGesture { selectedOrderID = o.id }
                 if o.id != orders.last?.id {
                     Divider().padding(.leading, DS.spaceL)
