@@ -26,7 +26,7 @@ macOS 菜单栏 + 主窗口 A 股桌面 App。持仓 / 自选 / 大盘 / 新闻 
 ## 快速开始
 
 ```bash
-git clone https://github.com/Lixiaoningli/StockBar.git
+git clone https://github.com/defer2xn/StockBar.git
 cd StockBar
 bash scripts/build.sh release      # 产出 ./StockBar.app
 open StockBar.app                  # 首次启动会自动 bootstrap venv
