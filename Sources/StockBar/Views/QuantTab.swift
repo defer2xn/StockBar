@@ -76,14 +76,22 @@ struct QuantTab: View {
                 )
             }
         }
-        .onChange(of: snap?.orders.first?.id) { _, newID in
-            // 数据刷新后保留旧选中（若不存在则选 Top1）
-            if let sel = selectedOrderID,
-               !(snap?.orders.contains(where: { $0.id == sel }) ?? false) {
-                selectedOrderID = newID
-            } else if selectedOrderID == nil {
-                selectedOrderID = newID
+        .onAppear {
+            // 进入 Tab 立即选中第一笔（按当前排序）
+            if selectedOrderID == nil {
+                selectedOrderID = sortedOrders.first?.id
             }
+        }
+        .onChange(of: snap?.ts) { _, _ in
+            // 每次数据刷新（ts 变）：
+            //   - 若旧选中仍在新订单里 → 保留（避免详情面板乱跳）
+            //   - 若旧选中已被剔除 → 跳到第一笔
+            //   - 还没选 → 选第一笔
+            if let sel = selectedOrderID,
+               snap?.orders.contains(where: { $0.id == sel }) == true {
+                return
+            }
+            selectedOrderID = sortedOrders.first?.id
         }
     }
 
@@ -373,9 +381,17 @@ private struct OrderRow: View {
             actionBadge
                 .frame(width: 70, alignment: .leading)
 
-            Text("\(order.shares)")
-                .font(DS.tabular)
-                .frame(width: 70, alignment: .trailing)
+            HStack(spacing: 2) {
+                if order.affordable == false {
+                    // 参考订单：现金不足以买 100 股，淡灰小标
+                    Text("⚠")
+                        .font(.system(size: 9, weight: .bold))
+                        .foregroundStyle(.orange)
+                }
+                Text("\(order.shares)")
+                    .font(DS.tabular)
+            }
+            .frame(width: 70, alignment: .trailing)
 
             // 买价 / 卖价 + 距现价 %
             VStack(alignment: .trailing, spacing: 1) {
@@ -451,6 +467,7 @@ private struct OrderRow: View {
     private var rowBackground: Color {
         if selected { return DS.accent.opacity(0.12) }
         if order.isSell { return DS.tintBg(for: -1) }    // 卖单浅绿底
+        if order.affordable == false { return Color.gray.opacity(0.06) }  // 参考订单（现金不够）
         return .clear
     }
 
@@ -515,6 +532,9 @@ private struct OrderDetailView: View {
         ScrollView {
             VStack(alignment: .leading, spacing: DS.spaceL) {
                 header
+                if order.affordable == false {
+                    affordabilityWarning
+                }
                 priceCards
                 if let dims = order.dimensions {
                     dimensionBars(dims)
@@ -532,6 +552,27 @@ private struct OrderDetailView: View {
             .padding(DS.spaceXL)
         }
         .background(DS.canvas)
+    }
+
+    // MARK: 资金不足参考订单提示
+
+    private var affordabilityWarning: some View {
+        HStack(spacing: DS.spaceS) {
+            Image(systemName: "exclamationmark.triangle.fill")
+                .foregroundStyle(.orange)
+            VStack(alignment: .leading, spacing: 2) {
+                Text("参考订单 · 当前现金不足以买 100 股")
+                    .font(.subheadline.weight(.semibold))
+                if let cost = order.costTotal {
+                    Text("买入 100 股需 ¥\(Int(cost)) — 可观察、不强求立即下单")
+                        .font(.caption).foregroundStyle(.secondary)
+                }
+            }
+            Spacer()
+        }
+        .padding(DS.spaceM)
+        .background(Color.orange.opacity(0.10))
+        .cornerRadius(DS.radiusS)
     }
 
     // MARK: 头

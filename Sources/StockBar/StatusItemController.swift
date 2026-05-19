@@ -182,16 +182,24 @@ final class StatusItemController: NSObject, NSMenuDelegate {
     }
 
     private func formatPositionLine(_ p: Position) -> String {
-        let priceStr = p.price.priceString(decimals: 3)
+        let priceStr = p.price.priceString(decimals: decimalsFor(code: p.code))
         let pctStr = p.changePct.pctString()
         let pnlStr = p.pnlToday.signedMoneyString()
         return "  \(p.code) \(p.name)  \(priceStr)  \(pctStr)  \(pnlStr)"
     }
 
     private func formatQuoteLine(_ q: Quote) -> String {
-        let priceStr = q.price.priceString(decimals: 2)
+        let decimals = decimalsFor(code: q.code ?? "")
+        let priceStr = q.price.priceString(decimals: decimals)
         let pctStr = q.changePct.pctString()
         let codePart = q.code.map { "\($0) " } ?? ""
         return "  \(codePart)\(q.name)  \(priceStr)  \(pctStr)"
+    }
+
+    /// ETF (15/51/56/58 开头) 用 3 位小数 (tick 0.001)；股票用 2 位 (tick 0.01)
+    private func decimalsFor(code: String) -> Int {
+        let isETF = code.hasPrefix("15") || code.hasPrefix("51")
+                 || code.hasPrefix("56") || code.hasPrefix("58")
+        return isETF ? 3 : 2
     }
 }

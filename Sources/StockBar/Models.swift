@@ -72,6 +72,7 @@ struct QuantOrder: Decodable, Identifiable, Equatable, Hashable {
     let tpPct: Double?          // 止盈距买价 %
     let slPct: Double?          // 止损距买价 %
     let sellPct: Double?        // 卖价距现价 % (卖单)
+    let affordable: Bool?       // 当前现金能否买 100 股；false=参考订单（资金不足）
     let costTotal: Double?      // 总成本
     let profitTarget: Double?   // 触及止盈潜在收益
     let lossLimit: Double?      // 触及止损最大亏损

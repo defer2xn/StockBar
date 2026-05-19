@@ -68,15 +68,14 @@ def _import_analyze() -> str | None:
 
 PORTFOLIO_JSON = Path.home() / "Library/Application Support/StockBar/portfolio.json"
 
-# 深扫数量上限（K线 + 评分），平衡覆盖度和速度
-MAX_DEEP_SCAN = 80
+# 深扫数量上限（K线 + 评分），平衡覆盖度和速度。
+# 120 ≈ 75s（盘中 5min 自动刷新 cadence 内可容纳）；要凑足 20 单推荐需要足够样本。
+MAX_DEEP_SCAN = 120
 
-# 候选 ETF 池（覆盖主要主题板块）
+# 候选 ETF 池：**仅行业 / 主题 ETF**（不含宽基指数 ETF 如沪深300/中证500/创业板/科创50）
+# 用户偏好：盈利为目的，避免大盘指数（涨跌幅有限）；行业 ETF 弹性较大
 ETF_UNIVERSE = [
-    ("510300", "沪深300ETF"),
-    ("510500", "中证500ETF"),
-    ("588000", "科创50ETF"),
-    ("159915", "创业板ETF"),
+    # 行业 / 主题
     ("159928", "消费ETF"),
     ("512010", "医药ETF"),
     ("516160", "新能源ETF"),
@@ -91,39 +90,59 @@ ETF_UNIVERSE = [
     ("159939", "信息技术ETF"),
 ]
 
-# 候选个股池（各行业龙头 + 高流动性）
+# 候选个股池（各行业龙头 + 高流动性）—— 优先级高于 ETF
 STOCK_UNIVERSE = [
-    # 白酒消费
+    # 白酒 / 消费
     ("600519", "贵州茅台"),
     ("000858", "五粮液"),
-    ("000333", "美的集团"),
+    ("000568", "泸州老窖"),
     ("600887", "伊利股份"),
+    ("603288", "海天味业"),
+    ("000333", "美的集团"),
+    ("000651", "格力电器"),
     # 金融
     ("600036", "招商银行"),
     ("601318", "中国平安"),
     ("000001", "平安银行"),
+    ("601166", "兴业银行"),
+    ("601398", "工商银行"),
+    ("601939", "建设银行"),
     ("600030", "中信证券"),
+    ("601066", "中信建投"),
     # 新能源 / 制造
     ("300750", "宁德时代"),
     ("002594", "比亚迪"),
     ("601012", "隆基绿能"),
     ("600900", "长江电力"),
+    ("300274", "阳光电源"),
+    ("300014", "亿纬锂能"),
     # 科技 / 半导体
     ("000725", "京东方A"),
     ("002415", "海康威视"),
     ("300059", "东方财富"),
     ("002230", "科大讯飞"),
+    ("688981", "中芯国际"),
+    ("603501", "韦尔股份"),
+    ("002475", "立讯精密"),
+    ("300124", "汇川技术"),
+    ("600588", "用友网络"),
     # 医药
     ("600276", "恒瑞医药"),
     ("300015", "爱尔眼科"),
     ("000538", "云南白药"),
+    ("300760", "迈瑞医疗"),
+    ("600436", "片仔癀"),
     # 周期 / 资源
     ("601899", "紫金矿业"),
     ("600028", "中国石化"),
-    # 地产 / 基建
-    ("600585", "海螺水泥"),
-    # 农业
+    ("601857", "中国石油"),
+    ("601088", "中国神华"),
+    # 农业 / 食品
     ("002714", "牧原股份"),
+    ("300498", "温氏股份"),
+    # 基建 / 地产
+    ("600585", "海螺水泥"),
+    ("601668", "中国建筑"),
 ]
 
 # 价格档位
@@ -535,8 +554,11 @@ def make_buy_order(code: str, name: str, df, rt, score: int, reason: str, detail
     tp_q = quantize_price(TP, code)
     sl_q = quantize_price(SL, code)
     shares = quantize_shares(budget, buy_q)
+    # 参考模式：budget 不够买 100 股，仍输出推荐订单（最小买入单位 100 股），
+    # UI 提示用户实际买入需现金 cost_total。让用户看完整候选名单。
+    affordable = shares > 0
     if shares == 0:
-        return None
+        shares = 100
 
     cost_total = round(shares * buy_q, 2)
     profit_target = round(shares * (tp_q - buy_q), 2)
@@ -579,6 +601,7 @@ def make_buy_order(code: str, name: str, df, rt, score: int, reason: str, detail
         "buy_pct":      round((buy_q - P) / P * 100, 2),    # 距现价
         "tp_pct":       round((tp_q - buy_q) / buy_q * 100, 2),  # 距买价
         "sl_pct":       round((sl_q - buy_q) / buy_q * 100, 2),  # 距买价
+        "affordable":   affordable,   # False = 当前现金不足以买 100 股，仅作参考
         "operation":    operation,
         "invalidation": invalidation,
     }
@@ -878,39 +901,42 @@ def main():
             continue
 
         score, reason, detail = short_term_score(df, rt, market_dir)
-        if score < 70:
+        # 评分 ≥60 进推荐池（凑足 20 笔参考订单需要更大样本）；
+        # ratio 分布上让 score 高的多分配，低分给参考仓位
+        if score < 60:
             continue
         scored.append((score, reason, detail, code, name))
 
     scored.sort(key=lambda x: -x[0])
-    log(f"scored (>=70): {len(scored)}")
+    log(f"scored (>=60): {len(scored)}")
 
     # ---- 仓位预算 + 生成买入订单 ----
-    # ratio 基于【初始 cash】算（不是 reduce 后），单笔仓位才稳定；
-    # 但累积总仓位不超过 cash × CUMULATIVE_CAP（防超额）
+    # 推荐上限 20 笔；ratio 分 6 档便于让 score 高的多分配
+    # 累积总仓位 ≤ cash × CUMULATIVE_CAP
     buy_orders = []
-    CUMULATIVE_CAP = 0.85
+    CUMULATIVE_CAP = 0.90
+    MAX_ORDERS = 20
     spent = 0.0
-    for score, reason, detail, code, name in scored[:10]:
-        if score >= 85:
-            ratio = 0.35
-        elif score >= 75:
-            ratio = 0.25
-        else:
-            ratio = 0.15
-        # 单笔预算 = 初始 cash × ratio，但不超过剩余预算上限
+    for score, reason, detail, code, name in scored[:40]:   # 顶多尝试 40 个候选
+        # 评分越高仓位越大，但单笔不超过总现金 8% 以容纳 20 笔分散
+        if score >= 90:    ratio = 0.08
+        elif score >= 85:  ratio = 0.06
+        elif score >= 80:  ratio = 0.05
+        elif score >= 75:  ratio = 0.045
+        elif score >= 70:  ratio = 0.04
+        elif score >= 65:  ratio = 0.035
+        else:              ratio = 0.03    # 60-64
         budget = cash * ratio
-        remaining_cap = cash * CUMULATIVE_CAP - spent
-        budget = min(budget, remaining_cap)
-        if budget <= 0:
-            break
+        # 注意：参考模式下不强求 budget 充足 — make_buy_order 会用 100 股保底
         df, rt = data_map[code]
         order = make_buy_order(code, name, df, rt, score, reason, detail, budget)
         if order is None:
-            continue
+            continue   # 仅在 RR/硬约束失败时跳过
         buy_orders.append(order)
-        spent += order["shares"] * order["price"]
-        if len(buy_orders) >= 5:
+        # 只累计实际能下的订单
+        if order.get("affordable"):
+            spent += order["shares"] * order["price"]
+        if len(buy_orders) >= MAX_ORDERS:
             break
 
     if not buy_orders and not sell_orders:
