@@ -111,7 +111,7 @@ final class StatusItemController: NSObject, NSMenuDelegate {
             return
         }
         for q in appModel.indices {
-            menu.addItem(disabledItem(formatQuoteLine(q)))
+            menu.addItem(disabledItem(formatQuoteLine(q, showCode: false)))
         }
     }
 
@@ -128,7 +128,8 @@ final class StatusItemController: NSObject, NSMenuDelegate {
         launch.state = SMAppService.mainApp.status == .enabled ? .on : .off
         menu.addItem(launch)
 
-        let quit = NSMenuItem(title: "退出 StockBar", action: #selector(NSApplication.terminate(_:)), keyEquivalent: "q")
+        let quit = NSMenuItem(title: "退出 StockBar", action: #selector(quitAction), keyEquivalent: "q")
+        quit.target = self
         menu.addItem(quit)
     }
 
@@ -138,6 +139,10 @@ final class StatusItemController: NSObject, NSMenuDelegate {
 
     @objc private func refreshAction() {
         appModel.requestRefresh()
+    }
+
+    @objc private func quitAction() {
+        NSApp.terminate(nil)
     }
 
     @objc private func toggleLaunchAtLogin() {
@@ -185,15 +190,39 @@ final class StatusItemController: NSObject, NSMenuDelegate {
         let priceStr = p.price.priceString(decimals: decimalsFor(code: p.code))
         let pctStr = p.changePct.pctString()
         let pnlStr = p.pnlToday.signedMoneyString()
-        return "  \(p.code) \(p.name)  \(priceStr)  \(pctStr)  \(pnlStr)"
+        return "  \(padName(p.name)) \(p.code)  \(priceStr)  \(pctStr)  \(pnlStr)"
     }
 
-    private func formatQuoteLine(_ q: Quote) -> String {
+    private func formatQuoteLine(_ q: Quote, showCode: Bool = true) -> String {
         let decimals = decimalsFor(code: q.code ?? "")
         let priceStr = q.price.priceString(decimals: decimals)
         let pctStr = q.changePct.pctString()
-        let codePart = q.code.map { "\($0) " } ?? ""
-        return "  \(codePart)\(q.name)  \(priceStr)  \(pctStr)"
+        let codePart = (showCode ? q.code.map { " \($0)" } : nil) ?? ""
+        return "  \(padName(q.name))\(codePart)  \(priceStr)  \(pctStr)"
+    }
+
+    /// 按 visual width 把名字右补空格到 targetColumns（中文/全角=2，半角=1）。
+    /// 菜单用 proportional 字体没法像等宽体那样完美对齐，但这样比裸拼接稳很多。
+    private func padName(_ name: String, columns: Int = 10) -> String {
+        var width = 0
+        for scalar in name.unicodeScalars {
+            // CJK 区段大致按全角 2 列算；其它按 1 列
+            let v = scalar.value
+            let isWide = (0x1100...0x115F).contains(v)
+                || (0x2E80...0x303E).contains(v)
+                || (0x3041...0x33FF).contains(v)
+                || (0x3400...0x4DBF).contains(v)
+                || (0x4E00...0x9FFF).contains(v)
+                || (0xA000...0xA4CF).contains(v)
+                || (0xAC00...0xD7A3).contains(v)
+                || (0xF900...0xFAFF).contains(v)
+                || (0xFE30...0xFE4F).contains(v)
+                || (0xFF00...0xFF60).contains(v)
+                || (0xFFE0...0xFFE6).contains(v)
+            width += isWide ? 2 : 1
+        }
+        let pad = max(0, columns - width)
+        return name + String(repeating: " ", count: pad)
     }
 
     /// ETF (15/51/56/58 开头) 用 3 位小数 (tick 0.001)；股票用 2 位 (tick 0.01)

@@ -105,8 +105,27 @@ struct IntradayChartView: View {
                         .font(.caption2)
                 }
             }
+            // AreaMark 默认会把 0 纳入 Y 域，导致股价 26 块上下的票被压成一条直线。
+            // 用真实价格范围 + 适当 padding（包含昨收线），让分时波动清晰可见。
+            .chartYScale(domain: yDomain())
             .frame(maxWidth: .infinity, maxHeight: .infinity)
         }
+    }
+
+    /// 计算 Y 轴显示范围：覆盖所有 tick 价格 + 昨收线，再左右各扩 15% 给波动留余量。
+    private func yDomain() -> ClosedRange<Double> {
+        let prices = data.ticks.map(\.price)
+        guard let lo = prices.min(), let hi = prices.max(), lo > 0 else {
+            return 0...1
+        }
+        var minV = lo
+        var maxV = hi
+        if let prev = data.prevClose, prev > 0 {
+            minV = min(minV, prev)
+            maxV = max(maxV, prev)
+        }
+        let pad = max((maxV - minV) * 0.15, maxV * 0.001)
+        return (minV - pad)...(maxV + pad)
     }
 
     private var changePct: Double? {

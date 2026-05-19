@@ -12,6 +12,8 @@ final class AppModel: ObservableObject {
     @Published private(set) var indices: [Quote] = []
     @Published private(set) var lastError: String?
     @Published private(set) var lastUpdated: String?
+    /// snapshot 刷新是否正在进行，用于按钮转圈反馈
+    @Published private(set) var isRefreshing: Bool = false
 
     /// code → 最新一次拉到的新闻列表
     @Published private(set) var newsByCode: [String: [NewsItem]] = [:]
@@ -50,6 +52,7 @@ final class AppModel: ObservableObject {
     // MARK: - 命令转发
 
     func requestRefresh() {
+        isRefreshing = true
         helper?.requestRefresh()
     }
 
@@ -159,6 +162,7 @@ final class AppModel: ObservableObject {
         lastUpdated = resp.ts
         switch resp.type {
         case "snapshot":
+            isRefreshing = false
             if resp.ok {
                 snapshot = resp
                 holdings = resp.holdings

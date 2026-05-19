@@ -786,10 +786,15 @@ def main():
     forced_codes: set[str] = set()   # 自选 + 持仓必须深扫，跳过 L1 预筛
 
     # 1) 自选（必扫）
+    # 用户在自选编辑里可能只填代码不填名字（portfolio.json 中 name=""），
+    # 用 STOCK_UNIVERSE / ETF_UNIVERSE 反查兜底，避免 UI 出现空名字。
+    builtin_name_map = {c: n for c, n in STOCK_UNIVERSE}
+    builtin_name_map.update({c: n for c, n in ETF_UNIVERSE})
     for w in watchlist:
         c = w.get("code")
         if c and not is_risky_code(c) and c not in seen and c not in held_codes:
-            candidates.append((c, w.get("name", c)))
+            name = (w.get("name") or "").strip() or builtin_name_map.get(c) or c
+            candidates.append((c, name))
             seen.add(c)
             forced_codes.add(c)
     # 2) ETF 通用池（必扫）
@@ -864,7 +869,7 @@ def main():
     hold_count = 0
     for p in positions:
         code = p.get("code")
-        name = p.get("name", code)
+        name = (p.get("name") or "").strip() or builtin_name_map.get(code) or code
         shares = float(p.get("shares") or 0)
         cost = float(p.get("costPrice") or 0)
         df, rt = data_map.get(code, (None, None))

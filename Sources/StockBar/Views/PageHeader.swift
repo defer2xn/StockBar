@@ -11,6 +11,9 @@ struct PageHeader: View {
     var addLabel: String? = nil
     var onAdd: (() -> Void)? = nil
 
+    @EnvironmentObject private var model: AppModel
+    @State private var spin = false
+
     var body: some View {
         HStack(alignment: .firstTextBaseline) {
             VStack(alignment: .leading, spacing: 2) {
@@ -44,12 +47,29 @@ struct PageHeader: View {
                 .controlSize(.small)
             }
             Button(action: onRefresh) {
-                Image(systemName: "arrow.clockwise")
-                    .font(.system(size: 13, weight: .semibold))
+                HStack(spacing: 4) {
+                    Image(systemName: "arrow.clockwise")
+                        .rotationEffect(.degrees(spin ? 360 : 0))
+                        .animation(
+                            model.isRefreshing
+                                ? .linear(duration: 0.8).repeatForever(autoreverses: false)
+                                : .default,
+                            value: spin
+                        )
+                    Text(model.isRefreshing ? "刷新中" : "刷新")
+                }
+                .font(.system(size: 12, weight: .semibold))
             }
-            .buttonStyle(.borderless)
+            .buttonStyle(.bordered)
+            .controlSize(.small)
+            .disabled(model.isRefreshing)
             .help("立即刷新 ⌘R")
             .keyboardShortcut("r", modifiers: .command)
+            .onChange(of: model.isRefreshing) { _, refreshing in
+                // 刷新开始：spin 切到 360°，配合 repeatForever 持续转
+                // 刷新结束：spin 切回 0°，自然停止
+                spin = refreshing
+            }
         }
         .padding(.horizontal, DS.spaceXL)
         .padding(.top, DS.spaceL)
