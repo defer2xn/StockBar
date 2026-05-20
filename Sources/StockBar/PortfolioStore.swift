@@ -11,6 +11,12 @@ final class PortfolioStore: ObservableObject {
         var name: String
         var shares: Double
         var costPrice: Double
+        /// 若整笔都是当日买入，填 costDate 即可；今日盈亏走 (现价 - costPrice)。
+        var costDate: String? = nil
+        /// 若是"部分今日新买 + 部分隔夜"，用 intradayShares + intradayCost 拆。
+        /// 今日盈亏 = intradayShares × (现价 - intradayCost) + (shares - intradayShares) × (现价 - 昨收)
+        var intradayShares: Double? = nil
+        var intradayCost: Double? = nil
 
         var id: String { code }
     }

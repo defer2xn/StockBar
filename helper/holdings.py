@@ -39,9 +39,12 @@ AMOUNT_PAREN_RE = re.compile(r"[（(]\s*(\d+(?:,\d{3})*(?:\.\d+)?)\s*元\s*[)）
 class Position:
     code: str
     name: str
-    cost_price: Optional[float] = None      # 成本价
-    shares: Optional[float] = None          # 份额/股数
+    cost_price: Optional[float] = None      # 成本价（全部份额加权）
+    shares: Optional[float] = None          # 总份额/股数（含今日批次）
     cost_amount: Optional[float] = None     # 投入金额 (元)
+    cost_date: Optional[str] = None         # 整笔买入日期；当日买入则今日盈亏走 (price - cost_price)
+    intraday_shares: Optional[float] = None # 今日新买入的股数（应 <= shares）
+    intraday_cost: Optional[float] = None   # 今日新买入的成本价；剩余部分按 (price - 昨收) 算今日盈亏
 
 
 @dataclass
@@ -193,12 +196,16 @@ def load_json(path: Path) -> Holdings:
         code = str(raw.get("code", "")).strip()
         if not code:
             continue
+        # 字段名兼容 camelCase（App 端 Swift Codable 默认写出的格式）和 snake_case
         h.positions.append(Position(
             code=code,
             name=str(raw.get("name", "")),
-            cost_price=_safe_float(raw.get("cost_price")),
+            cost_price=_safe_float(raw.get("costPrice") if raw.get("costPrice") is not None else raw.get("cost_price")),
             shares=_safe_float(raw.get("shares")),
-            cost_amount=_safe_float(raw.get("cost_amount")),
+            cost_amount=_safe_float(raw.get("costAmount") if raw.get("costAmount") is not None else raw.get("cost_amount")),
+            cost_date=(raw.get("costDate") or raw.get("cost_date") or None),
+            intraday_shares=_safe_float(raw.get("intradayShares") if raw.get("intradayShares") is not None else raw.get("intraday_shares")),
+            intraday_cost=_safe_float(raw.get("intradayCost") if raw.get("intradayCost") is not None else raw.get("intraday_cost")),
         ))
     for raw in data.get("watchlist", []) or []:
         code = str(raw.get("code", "")).strip()

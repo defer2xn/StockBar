@@ -277,6 +277,7 @@ def build_snapshot(holdings_path: Path) -> dict:
     total_market_value = 0.0
     total_pnl_today = 0.0
     total_cost = 0.0
+    today_str = datetime.now().strftime("%Y-%m-%d")
 
     for p in h.positions:
         q = quotes.get(p.code, {})
@@ -287,7 +288,24 @@ def build_snapshot(holdings_path: Path) -> dict:
             shares = p.cost_amount / p.cost_price
 
         market_value = price * shares if price and shares else None
-        pnl_today = (price - prev) * shares if price is not None and prev is not None and shares else None
+        # 今日盈亏跟券商「当日参考盈亏」对齐，三种情况：
+        #   1) 设了 intraday_shares + intraday_cost：拆批次算
+        #        today_pnl = intraday_shares * (price - intraday_cost)
+        #                  + (shares - intraday_shares) * (price - prev_close)
+        #   2) 设了 cost_date == 今天：全部按当日买入算，(price - cost_price) * shares
+        #   3) 其它（隔夜持仓）：(price - prev_close) * shares
+        if price is None or not shares:
+            pnl_today = None
+        elif p.intraday_shares is not None and p.intraday_cost is not None and prev is not None:
+            intra = p.intraday_shares
+            overnight = shares - intra
+            pnl_today = intra * (price - p.intraday_cost) + overnight * (price - prev)
+        elif p.cost_date and p.cost_date == today_str and p.cost_price:
+            pnl_today = (price - p.cost_price) * shares
+        elif prev is not None:
+            pnl_today = (price - prev) * shares
+        else:
+            pnl_today = None
         pnl_total = (price - p.cost_price) * shares if price is not None and p.cost_price and shares else None
         cost_value = p.cost_price * shares if p.cost_price and shares else p.cost_amount
 
