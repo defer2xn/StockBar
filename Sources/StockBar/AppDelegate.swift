@@ -63,6 +63,20 @@ final class AppDelegate: NSObject, NSApplicationDelegate {
         appModel.startQuantAutoRefresh()
     }
 
+    /// 退出前先让主窗口淡出，避免 ⌘Q 时窗口瞬间消失的生硬感。
+    func applicationShouldTerminate(_ sender: NSApplication) -> NSApplication.TerminateReply {
+        guard let window = mainWindowController?.window, window.isVisible else {
+            return .terminateNow   // 没有可见窗口（只在菜单栏）→ 直接退出
+        }
+        NSAnimationContext.runAnimationGroup({ ctx in
+            ctx.duration = 0.18
+            window.animator().alphaValue = 0
+        }, completionHandler: {
+            NSApp.reply(toApplicationShouldTerminate: true)
+        })
+        return .terminateLater
+    }
+
     func applicationWillTerminate(_ notification: Notification) {
         helper?.stop()
     }

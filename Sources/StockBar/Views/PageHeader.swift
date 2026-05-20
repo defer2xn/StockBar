@@ -10,9 +10,15 @@ struct PageHeader: View {
     /// 可选的"+"按钮（添加持仓 / 自选 等）
     var addLabel: String? = nil
     var onAdd: (() -> Void)? = nil
+    /// 各 Tab 自己的刷新状态（量化/新闻 不走 snapshot 刷新路径）。
+    /// 不传则回退到全局 model.isRefreshing（行情类 Tab 用）。
+    var isRefreshing: Bool? = nil
 
     @EnvironmentObject private var model: AppModel
     @State private var spin = false
+
+    /// 当前是否处于刷新中：优先用本 Tab 传入的状态，否则用全局行情刷新状态
+    private var refreshing: Bool { isRefreshing ?? model.isRefreshing }
 
     var body: some View {
         HStack(alignment: .firstTextBaseline) {
@@ -51,24 +57,24 @@ struct PageHeader: View {
                     Image(systemName: "arrow.clockwise")
                         .rotationEffect(.degrees(spin ? 360 : 0))
                         .animation(
-                            model.isRefreshing
+                            refreshing
                                 ? .linear(duration: 0.8).repeatForever(autoreverses: false)
                                 : .default,
                             value: spin
                         )
-                    Text(model.isRefreshing ? "刷新中" : "刷新")
+                    Text(refreshing ? "刷新中" : "刷新")
                 }
                 .font(.system(size: 12, weight: .semibold))
             }
             .buttonStyle(.bordered)
             .controlSize(.small)
-            .disabled(model.isRefreshing)
+            .disabled(refreshing)
             .help("立即刷新 ⌘R")
             .keyboardShortcut("r", modifiers: .command)
-            .onChange(of: model.isRefreshing) { _, refreshing in
+            .onChange(of: refreshing) { _, isOn in
                 // 刷新开始：spin 切到 360°，配合 repeatForever 持续转
                 // 刷新结束：spin 切回 0°，自然停止
-                spin = refreshing
+                spin = isOn
             }
         }
         .padding(.horizontal, DS.spaceXL)

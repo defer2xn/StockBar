@@ -33,7 +33,8 @@ struct NewsTab: View {
                 subtitle: subtitleText,
                 counter: selectedNewsCount,
                 onRefresh: refresh,
-                timestamp: shortTime(model.lastUpdated)
+                timestamp: shortTime(model.lastUpdated),
+                isRefreshing: model.newsLoading
             )
 
             if allStocks.isEmpty {

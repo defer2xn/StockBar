@@ -20,6 +20,11 @@ final class AppModel: ObservableObject {
     /// code → 最新一次拉到的新闻列表
     @Published private(set) var newsByCode: [String: [NewsItem]] = [:]
 
+    /// 正在请求新闻的 code 集合（非空 → 新闻 Tab 顶部刷新按钮转圈）
+    @Published private(set) var newsLoadingCodes: Set<String> = []
+    /// 新闻是否正在刷新（供 PageHeader 转圈用）
+    var newsLoading: Bool { !newsLoadingCodes.isEmpty }
+
     /// code → 今日分时数据
     @Published private(set) var chartByCode: [String: ChartData] = [:]
 
@@ -59,6 +64,7 @@ final class AppModel: ObservableObject {
     }
 
     func requestNews(code: String) {
+        newsLoadingCodes.insert(code)
         helper?.requestNews(code: code)
     }
 
@@ -107,7 +113,7 @@ final class AppModel: ObservableObject {
         newsSelectedCode = code
         newsSelectedURL = nil
         if newsByCode[code] == nil {
-            helper?.requestNews(code: code)
+            requestNews(code: code)
         } else {
             autoSelectFirstNews(for: code)
         }
@@ -132,7 +138,7 @@ final class AppModel: ObservableObject {
     /// 用于打开新闻 Tab 或主窗口时预拉。
     func refreshAllNews() {
         for code in allTrackedCodes() {
-            helper?.requestNews(code: code)
+            requestNews(code: code)
         }
     }
 
@@ -165,6 +171,7 @@ final class AppModel: ObservableObject {
         switch resp.type {
         case "snapshot":
             isRefreshing = false
+            scheduleTimer()   // 每次响应后按当前交易时段重算刷新节奏（盘前启动 → 开盘后自动提速到 10s）
             if resp.ok {
                 snapshot = resp
                 holdings = resp.holdings
@@ -175,9 +182,12 @@ final class AppModel: ObservableObject {
                 lastError = resp.error
             }
         case "news":
-            if resp.ok, let code = resp.code {
-                newsByCode[code] = resp.items ?? []
-                autoSelectFirstNews(for: code)
+            if let code = resp.code {
+                newsLoadingCodes.remove(code)   // 无论成功失败都结束转圈
+                if resp.ok {
+                    newsByCode[code] = resp.items ?? []
+                    autoSelectFirstNews(for: code)
+                }
             }
         case "chart":
             if resp.ok, let code = resp.code {

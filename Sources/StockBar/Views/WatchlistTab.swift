@@ -31,27 +31,26 @@ struct WatchlistTab: View {
                 onAdd: { sheet = .add }
             )
 
-            ScrollView {
-                VStack(alignment: .leading, spacing: DS.spaceL) {
-                    if items.isEmpty {
-                        EmptyStateCard(
-                            icon: "star.slash",
-                            title: "暂无自选",
-                            hint: "点击右上角「加自选」开始追踪"
-                        )
-                    } else {
-                        watchlistGrid
-                        if selectedCode != nil { chartCard }
-                    }
+            if items.isEmpty {
+                EmptyStateCard(
+                    icon: "star.slash",
+                    title: "暂无自选",
+                    hint: "点击右上角「加自选」开始追踪"
+                )
+                .padding(DS.spaceXL)
+                Spacer()
+            } else {
+                // 顶部自选卡 + 下方分时图填满剩余空间，避免大片空白
+                VStack(spacing: DS.spaceL) {
+                    watchlistGrid
+                    chartCard
                 }
                 .padding(.horizontal, DS.spaceXL)
                 .padding(.bottom, DS.spaceXL)
             }
-            .refreshable {
-                model.requestRefresh()
-                if let code = selectedCode { model.requestChart(code: code) }
-            }
         }
+        .onAppear { autoSelectFirst() }
+        .onChange(of: items.count) { _, _ in autoSelectFirst() }
         .sheet(item: $sheet) { active in
             switch active {
             case .add:
@@ -99,12 +98,25 @@ struct WatchlistTab: View {
             if let code = selectedCode, let chart = model.chartByCode[code] {
                 IntradayChartView(data: chart)
                     .padding(DS.spaceL)
-            } else {
+            } else if selectedCode != nil {
                 ProgressView("加载分时…")
-                    .frame(maxWidth: .infinity, minHeight: 240)
+                    .frame(maxWidth: .infinity, maxHeight: .infinity)
+            } else {
+                ContentUnavailableView(
+                    "点选上方自选查看分时",
+                    systemImage: "chart.xyaxis.line"
+                )
             }
         }
+        .frame(maxWidth: .infinity, maxHeight: .infinity)
         .cardStyle(padding: 0)
+    }
+
+    /// 进入页面/自选变化后，默认选中第一只，让分时图立即填满下方空间。
+    private func autoSelectFirst() {
+        guard selectedCode == nil, let first = items.first?.code else { return }
+        selectedCode = first
+        model.requestChart(code: first)
     }
 
     private func shortTime(_ ts: String?) -> String? {

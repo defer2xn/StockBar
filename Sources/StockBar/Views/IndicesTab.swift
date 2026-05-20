@@ -15,25 +15,29 @@ struct IndicesTab: View {
                 timestamp: shortTime(model.lastUpdated)
             )
 
-            ScrollView {
-                VStack(alignment: .leading, spacing: DS.spaceL) {
-                    indexGrid
-                    if selectedCode != nil { chartCard }
-                }
-                .padding(.horizontal, DS.spaceXL)
-                .padding(.bottom, DS.spaceXL)
+            // 顶部指数卡（固定高度）+ 下方分时图填满剩余空间，避免大片空白
+            VStack(spacing: DS.spaceL) {
+                indexGrid
+                chartCard
             }
-            .refreshable {
-                model.requestRefresh()
-                if let code = selectedCode { model.requestChart(code: code) }
-            }
+            .padding(.horizontal, DS.spaceXL)
+            .padding(.bottom, DS.spaceXL)
         }
+        .onAppear { autoSelectFirst() }
+        .onChange(of: indices.count) { _, _ in autoSelectFirst() }
         .onReceive(NotificationCenter.default.publisher(for: .switchToIndicesTab)) { note in
             if let code = note.object as? String {
                 selectedCode = code
                 model.requestChart(code: code)
             }
         }
+    }
+
+    /// 进入页面/指数加载后，默认选中第一只（上证），让分时图立即填满下方空间。
+    private func autoSelectFirst() {
+        guard selectedCode == nil, let first = indices.first?.code else { return }
+        selectedCode = first
+        model.requestChart(code: first)
     }
 
     private var indexGrid: some View {
@@ -58,11 +62,17 @@ struct IndicesTab: View {
             if let code = selectedCode, let chart = model.chartByCode[code] {
                 IntradayChartView(data: chart)
                     .padding(DS.spaceL)
-            } else {
+            } else if selectedCode != nil {
                 ProgressView("加载分时…")
-                    .frame(maxWidth: .infinity, minHeight: 240)
+                    .frame(maxWidth: .infinity, maxHeight: .infinity)
+            } else {
+                ContentUnavailableView(
+                    "点选上方指数查看分时",
+                    systemImage: "chart.xyaxis.line"
+                )
             }
         }
+        .frame(maxWidth: .infinity, maxHeight: .infinity)
         .cardStyle(padding: 0)
     }
 

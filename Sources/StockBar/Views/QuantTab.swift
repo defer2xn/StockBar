@@ -54,7 +54,8 @@ struct QuantTab: View {
                 subtitle: subtitleText,
                 counter: orderCounter,
                 onRefresh: { model.requestQuant() },
-                timestamp: snap.map { shortTime($0.ts) }
+                timestamp: snap.map { shortTime($0.ts) },
+                isRefreshing: model.quantLoading
             )
 
             // 健康检查不通过（vnpy 不可达）→ banner 警告，不阻塞 UI 但提醒
