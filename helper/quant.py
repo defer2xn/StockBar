@@ -17,13 +17,19 @@ from __future__ import annotations
 import json
 import os
 import re
+import socket
 import sys
+import time
 import traceback
 from concurrent.futures import ThreadPoolExecutor, as_completed
-from datetime import datetime
+from datetime import datetime, timedelta
 from pathlib import Path
 
 import requests
+
+# 全局 socket 超时兜底：部分 akshare/eastmoney 接口（如 stock_bid_ask_em）未设超时，
+# 一旦远端 hang 住会让子进程永不退出（表现为"刷新不了"）。统一封顶 12s。
+socket.setdefaulttimeout(12)
 
 # 复用 vnpy 的 analyze.py —— 延迟到 main() 调用时再 import，方便单元测试纯函数
 # 测试环境（pytest 跑纯逻辑测试）不需要真实 akshare
@@ -329,6 +335,197 @@ def load_portfolio() -> dict:
     except Exception as e:
         log(f"portfolio load failed: {e}")
         return {"cash": 0.0, "positions": [], "watchlist": []}
+
+
+# ============================ 热点板块 / 消息面 / 未来事件 ============================
+# 说明：以下数据均来自 eastmoney/baidu，限流时易抖动。所有函数失败一律静默降级，
+# 绝不抛出，确保不拖垮主流程（不退化"刷新不了"问题）。
+
+# 新闻关键词词典（标题/正文命中计数 → 消息面 d6）
+_NEWS_BULL = (
+    "中标", "订单", "增持", "回购", "预增", "扭亏", "涨价", "提价", "签约", "合作",
+    "获批", "量产", "收购", "重组", "利好", "创新高", "超预期", "分红", "入选", "注入",
+    "突破", "签订", "投产", "提速", "放量",
+)
+_NEWS_BEAR = (
+    "减持", "亏损", "预减", "商誉", "立案", "调查", "问询", "处罚", "诉讼", "违规",
+    "质押", "平仓", "解禁", "退市", "终止", "失败", "风险提示", "变脸", "下滑", "警示",
+)
+
+# 富集范围（只对评分最高的前 N 候选拉行业/新闻，控制 eastmoney 调用量与时延）
+ENRICH_N = 12
+ENRICH_WORKERS = 12
+
+
+def _ak_retry(fn, tries: int = 1, sleep: float = 0.8):
+    """带重试的 akshare 调用；全部失败返回 None，绝不抛出。"""
+    for i in range(tries):
+        try:
+            return fn()
+        except Exception:
+            if i + 1 < tries:
+                time.sleep(sleep)
+    return None
+
+
+_HOT_SECTOR_CACHE: dict | None = None
+
+
+def fetch_hot_sectors(top_sectors: int = 8, max_per: int = 120) -> dict:
+    """新浪行业涨幅榜 → {成分股代码: (板块名, 加成分)}。
+
+    数据全走 Sina（stock_sector_spot / stock_sector_detail），比 eastmoney push2 稳。
+    取相对最强的前 N 个行业（含下跌日的"最抗跌"），成分股命中即热点加分。失败返回 {}。
+    """
+    global _HOT_SECTOR_CACHE
+    if _HOT_SECTOR_CACHE is not None:
+        return _HOT_SECTOR_CACHE
+    out: dict = {}
+    spot = _ak_retry(
+        lambda: __import__("akshare").stock_sector_spot(indicator="新浪行业"), tries=2
+    )
+    if spot is not None and "涨跌幅" in spot.columns:
+        spot = spot.sort_values("涨跌幅", ascending=False).head(top_sectors)
+        for rank, (_, row) in enumerate(spot.iterrows()):
+            label = str(row.get("label", "")).strip()
+            sector = str(row.get("板块", "")).strip()
+            if not label:
+                continue
+            bonus = max(1, 4 - rank // 2)   # 榜前 +4，每 2 名降 1，至 +1
+            det = _ak_retry(
+                lambda lb=label: __import__("akshare").stock_sector_detail(sector=lb)
+            )
+            if det is None or "code" not in det.columns:
+                continue
+            for c in det["code"].head(max_per):
+                code = str(c).strip().zfill(6)
+                if code and code not in out:   # 高排名行业优先占位
+                    out[code] = (sector, bonus)
+    _HOT_SECTOR_CACHE = out
+    log(f"hot sectors: {len(out)} 只成分股")
+    return out
+
+
+def score_stock_news(code: str) -> tuple[int, list[str]]:
+    """个股新闻关键词净值 → 消息面 d6 (1-10) + 可读信号。无新闻/失败返回中性 7。"""
+    df = _ak_retry(lambda: __import__("akshare").stock_news_em(symbol=code))
+    if df is None or getattr(df, "empty", True):
+        return 7, []
+    try:
+        title = df.get("新闻标题")
+        content = df.get("新闻内容")
+        text = ""
+        if title is not None:
+            text += " ".join(title.fillna("").astype(str).head(8))
+        if content is not None:
+            text += " " + " ".join(content.fillna("").astype(str).head(8))
+    except Exception:
+        return 7, []
+    bull = sum(text.count(k) for k in _NEWS_BULL)
+    bear = sum(text.count(k) for k in _NEWS_BEAR)
+    net = bull - bear
+    d6 = 7 + (
+        3 if net >= 3 else 2 if net == 2 else 1 if net == 1
+        else 0 if net == 0 else -2 if net == -1 else -4 if net == -2 else -6
+    )
+    d6 = max(1, min(10, d6))
+    sigs = []
+    if bull:
+        sigs.append(f"近期利好关键词 ×{bull}")
+    if bear:
+        sigs.append(f"⚠️ 利空关键词 ×{bear}")
+    return d6, sigs
+
+
+def fetch_event_risk() -> tuple[bool, str]:
+    """财经日历：未来 1 日内有重大宏观事件 → (True, 事件名)。失败/无 → (False, "")。"""
+    df = _ak_retry(lambda: __import__("akshare").news_economic_baidu(), tries=2)
+    if df is None or getattr(df, "empty", True):
+        return False, ""
+    KEYS = ("利率", "CPI", "非农", "GDP", "PMI", "议息", "降准", "加息", "就业", "PPI")
+    try:
+        today = datetime.now().date()
+        for _, row in df.iterrows():
+            event = str(row.get("事件", ""))
+            if not any(k in event for k in KEYS):
+                continue
+            imp_raw = str(row.get("重要性", ""))
+            try:
+                imp = float(imp_raw)
+            except (TypeError, ValueError):
+                imp = imp_raw.count("★") or (3 if "高" in imp_raw else 1)
+            if imp < 3:
+                continue
+            try:
+                d = datetime.strptime(str(row.get("日期", ""))[:10], "%Y-%m-%d").date()
+            except (TypeError, ValueError):
+                continue
+            if today <= d <= today + timedelta(days=1):
+                return True, event[:12]
+    except Exception:
+        pass
+    return False, ""
+
+
+def _recompute_total(dims: dict) -> float:
+    """按原权重重算总分：drawdown25 trend20 support20 hotness15 volume10 news10。"""
+    return (
+        dims["drawdown"] * 25 + dims["trend"] * 20 + dims["support"] * 20
+        + dims["hotness"] * 15 + dims["volume"] * 10 + dims["news"] * 10
+    ) / 10
+
+
+def enrich_top_candidates(scored: list, hot_sectors: dict) -> list:
+    """对评分最高的前 ENRICH_N 个候选，叠加真实强势板块(d4) + 个股新闻(d6)，
+    重算总分后整体重排。富集层失败/超时的个体回退原值，不影响其余候选。
+
+    板块命中走早期已构建好的 hot_sectors 映射（零额外网络）；只有个股新闻需联网。"""
+    if not scored:
+        return scored
+    head = scored[:ENRICH_N]
+    tail = scored[ENRICH_N:]
+
+    def work(item):
+        score, reason, detail, code, name = item
+        try:
+            dims = dict(detail["dimensions"])
+            sigs = list(detail.get("signals", []))
+            hit = hot_sectors.get(code)
+            if hit:
+                sector_name, bonus = hit
+                dims["hotness"] = min(10, dims["hotness"] + bonus)
+                sigs.append(f"🔥 强势板块：{sector_name}")
+            d6, news_sigs = score_stock_news(code)
+            dims["news"] = d6
+            sigs.extend(news_sigs)
+            new_total = int(round(_recompute_total(dims)))
+            detail2 = dict(detail)
+            detail2["dimensions"] = dims
+            detail2["signals"] = sigs
+            reason2 = reason
+            if hit and "热板" not in reason2:
+                reason2 = ("热板 " + reason2)[:25]
+            return (new_total, reason2, detail2, code, name)
+        except Exception:
+            return item   # 单只富集异常 → 原样返回
+
+    results = list(head)
+    futs = {}
+    ex = ThreadPoolExecutor(max_workers=ENRICH_WORKERS)
+    try:
+        for idx, it in enumerate(head):
+            futs[ex.submit(work, it)] = idx
+        try:
+            for fut in as_completed(futs, timeout=30):
+                results[futs[fut]] = fut.result()
+        except Exception:
+            pass   # 整体超时 → 未完成的保留原值
+    finally:
+        ex.shutdown(wait=False)   # 不等待挂起线程；socket 超时保证其最终自行结束
+
+    merged = results + tail
+    merged.sort(key=lambda x: -x[0])
+    return merged
 
 
 # ============================ 指标 & 评分 ============================
@@ -779,6 +976,18 @@ def main():
     elif market_dir < 0:
         notes.append("市场弱势 仅推强势")
 
+    # 强势板块（新浪行业涨幅榜）+ 未来重大事件（财经日历）——失败静默降级
+    hot_sectors = fetch_hot_sectors()
+    if hot_sectors:
+        sector_names = []
+        for _c, (sn, _b) in hot_sectors.items():
+            if sn not in sector_names:
+                sector_names.append(sn)
+        notes.append("强势板块：" + "/".join(sector_names[:3]))
+    event_risk, event_name = fetch_event_risk()
+    if event_risk:
+        notes.append(f"临近重大事件({event_name}) 收紧仓位")
+
     # ---- 候选池：自选 + 持仓 + ETF + A 股龙头 + 沪深300 ----
     held_codes = {p.get("code") for p in positions}
     candidates: list[tuple[str, str]] = []
@@ -914,6 +1123,8 @@ def main():
         scored.append((score, reason, detail, code, name))
 
     scored.sort(key=lambda x: -x[0])
+    # 对头部候选叠加真实强势板块(d4) + 个股新闻(d6)，重算并重排
+    scored = enrich_top_candidates(scored, hot_sectors)
     log(f"scored (>=60): {len(scored)}")
 
     # ---- 仓位预算 + 生成买入订单 ----
@@ -924,6 +1135,9 @@ def main():
     MAX_ORDERS = 20
     spent = 0.0
     for score, reason, detail, code, name in scored[:40]:   # 顶多尝试 40 个候选
+        # 临近重大事件：抬高门槛（仅推强势）并压缩单笔仓位
+        if event_risk and score < 68:
+            continue
         # 评分越高仓位越大，但单笔不超过总现金 8% 以容纳 20 笔分散
         if score >= 90:    ratio = 0.08
         elif score >= 85:  ratio = 0.06
@@ -933,6 +1147,8 @@ def main():
         elif score >= 65:  ratio = 0.035
         else:              ratio = 0.03    # 60-64
         budget = cash * ratio
+        if event_risk:
+            budget *= 0.7   # 重大事件临近，压缩仓位
         # 注意：参考模式下不强求 budget 充足 — make_buy_order 会用 100 股保底
         df, rt = data_map[code]
         order = make_buy_order(code, name, df, rt, score, reason, detail, budget)
