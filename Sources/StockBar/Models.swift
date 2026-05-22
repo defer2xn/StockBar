@@ -34,6 +34,21 @@ struct HelperResponse: Decodable {
     let paragraphs: [String]?
     let images: [String]?
 
+    // type == "sectors"
+    let sectors: [Sector]?
+
+    // type == "analyze"（部分字段与其它 type 复用 code/name/error）
+    let kind: String?            // holding / watch / index
+    let verdict: String?
+    let reason: String?
+    let score: Int?
+    let levels: AnalysisLevels?
+    let signals: [String]?
+    let newsSentiment: String?
+    let newsSignals: [String]?
+    let pnlPct: Double?
+    let pnlAmount: Double?
+
     // type == "quant"
     let session: String?
     let market: String?
@@ -197,12 +212,58 @@ struct Quote: Decodable, Identifiable, Equatable, Hashable {
     var id: String { code ?? name }
 }
 
+/// 单股 / 指数研判（analyze 命令结果）。
+struct StockAnalysis: Equatable {
+    let code: String
+    let kind: String            // holding / watch / index
+    let name: String
+    let verdict: String         // 持仓:持有/止盈/止损/清仓; 自选:买入/观望/回避; 大盘:多/空/震荡
+    let reason: String
+    let score: Int?             // 0-100 短线评分（大盘为 nil）
+    let levels: AnalysisLevels
+    let signals: [String]
+    let newsSentiment: String?  // bull / bear / neutral（大盘为 nil）
+    let newsSignals: [String]
+    let pnlPct: Double?         // 仅持仓
+    let pnlAmount: Double?      // 仅持仓
+    let error: String?
+
+    var hasError: Bool { error != nil }
+}
+
+struct AnalysisLevels: Decodable, Equatable {
+    let buy: Double?
+    let tp: Double?
+    let sl: Double?
+    let support: Double?
+    let resistance: Double?
+}
+
+/// 新浪行业板块（实时榜）。
+struct Sector: Decodable, Identifiable, Equatable, Hashable {
+    let label: String          // 新浪内部标识，如 "new_qczz"
+    let name: String           // 板块名，如 "汽车制造"
+    let count: Int             // 公司家数
+    let avgPrice: Double?
+    let changePct: Double?     // 板块涨跌幅（%）
+    let volume: Double?        // 总成交量（股）
+    let turnover: Double?      // 总成交额（元）
+    let leaderCode: String?    // 领涨股 6 位代码
+    let leaderName: String?    // 领涨股名称
+    let leaderChangePct: Double?
+    let leaderPrice: Double?
+
+    var id: String { label }
+}
+
 struct NewsItem: Decodable, Identifiable, Equatable, Hashable {
     let title: String
     let url: String
     let date: String
     let source: String?
     let summary: String?
+    let sentiment: String?   // bull / bear / neutral
+    let relevance: Int?      // 2=标题含名称 / 1=含代码 / 0=泛市场
 
     var id: String { url }
 }

@@ -49,9 +49,18 @@ final class HelperProcess {
     }
 
     func requestRefresh() { send("refresh") }
-    func requestNews(code: String) { send("news \(code)") }
+    func requestNews(code: String, name: String) { send("news \(code) \(name)") }
     func requestChart(code: String) { send("chart \(code)") }
     func requestArticle(url: String) { send("article \(url)") }
+    func requestSectors() { send("sectors") }
+    /// analyze <code> [cost_price] [shares]：cost/shares 仅持仓传
+    func requestAnalyze(code: String, costPrice: Double?, shares: Double?) {
+        if let c = costPrice {
+            send("analyze \(code) \(c) \(Int(shares ?? 0))")
+        } else {
+            send("analyze \(code)")
+        }
+    }
     func requestQuant() { send("quant") }
     func requestHealth() { send("health") }
 

@@ -34,6 +34,7 @@ struct MainContentView: View {
         case .holdings:  HoldingsTab()
         case .watchlist: WatchlistTab()
         case .indices:   IndicesTab()
+        case .sectors:   SectorsTab()
         case .news:      NewsTab()
         case .quant:     QuantTab()
         case .none:      TodayTab()
@@ -42,7 +43,7 @@ struct MainContentView: View {
 }
 
 enum SidebarSection: Hashable, CaseIterable {
-    case today, holdings, watchlist, indices, news, quant
+    case today, holdings, watchlist, indices, sectors, news, quant
 
     var title: String {
         switch self {
@@ -50,6 +51,7 @@ enum SidebarSection: Hashable, CaseIterable {
         case .holdings:  return "持仓"
         case .watchlist: return "自选"
         case .indices:   return "大盘"
+        case .sectors:   return "板块"
         case .news:      return "新闻"
         case .quant:     return "量化"
         }
@@ -61,6 +63,7 @@ enum SidebarSection: Hashable, CaseIterable {
         case .holdings:  return "briefcase.fill"
         case .watchlist: return "star.fill"
         case .indices:   return "chart.bar.fill"
+        case .sectors:   return "square.grid.2x2.fill"
         case .news:      return "newspaper.fill"
         case .quant:     return "function"
         }

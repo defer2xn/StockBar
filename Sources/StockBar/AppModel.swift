@@ -28,6 +28,18 @@ final class AppModel: ObservableObject {
     /// code → 今日分时数据
     @Published private(set) var chartByCode: [String: ChartData] = [:]
 
+    /// code → 单股/指数研判结果（含失败态）
+    @Published private(set) var analysisByCode: [String: StockAnalysis] = [:]
+    /// 正在分析中的 code（卡片转 loading）
+    @Published private(set) var analyzingCodes: Set<String> = []
+
+    /// 行业板块榜（按涨跌幅降序）
+    @Published private(set) var sectors: [Sector] = []
+    /// 板块是否正在刷新（供 PageHeader 转圈用）
+    @Published private(set) var sectorsLoading: Bool = false
+    /// 板块最近一次更新时间
+    @Published private(set) var sectorsUpdated: String?
+
     /// url → 抓取并清洗后的文章正文
     @Published private(set) var articleByURL: [String: Article] = [:]
 
@@ -65,11 +77,34 @@ final class AppModel: ObservableObject {
 
     func requestNews(code: String) {
         newsLoadingCodes.insert(code)
-        helper?.requestNews(code: code)
+        helper?.requestNews(code: code, name: nameFor(code: code))
+    }
+
+    /// 大盘 / 指数代码 → 名称（新闻 Tab 大盘入口用；不在持仓/自选里）
+    static let indexNames = ["000001": "上证指数", "399001": "深证成指",
+                             "399006": "创业板指", "000300": "沪深300"]
+
+    /// 从持仓 / 自选 / 指数解析股票名称（用于按名称搜新闻，提升关联度）
+    private func nameFor(code: String) -> String {
+        if let p = holdings?.positions.first(where: { $0.code == code }) { return p.name }
+        if let q = watchlist.first(where: { $0.code == code }) { return q.name }
+        if let n = Self.indexNames[code] { return n }
+        return ""
+    }
+
+    /// 触发单股 / 指数研判。持仓传 costPrice + shares，自选/指数不传。
+    func requestAnalyze(code: String, costPrice: Double? = nil, shares: Double? = nil) {
+        analyzingCodes.insert(code)
+        helper?.requestAnalyze(code: code, costPrice: costPrice, shares: shares)
     }
 
     func requestChart(code: String) {
         helper?.requestChart(code: code)
+    }
+
+    func requestSectors() {
+        sectorsLoading = true
+        helper?.requestSectors()
     }
 
     func requestArticle(url: String) {
@@ -211,6 +246,35 @@ final class AppModel: ObservableObject {
                     images: resp.images ?? [],
                     error: resp.ok ? nil : resp.error
                 )
+            }
+        case "analyze_pending":
+            break   // 结果稍后异步到达；analyzingCodes 已在 requestAnalyze 置位
+        case "analyze":
+            if let code = resp.code {
+                analyzingCodes.remove(code)
+                analysisByCode[code] = StockAnalysis(
+                    code: code,
+                    kind: resp.kind ?? "",
+                    name: resp.name ?? "",
+                    verdict: resp.verdict ?? "",
+                    reason: resp.reason ?? "",
+                    score: resp.score,
+                    levels: resp.levels ?? AnalysisLevels(buy: nil, tp: nil, sl: nil, support: nil, resistance: nil),
+                    signals: resp.signals ?? [],
+                    newsSentiment: resp.newsSentiment,
+                    newsSignals: resp.newsSignals ?? [],
+                    pnlPct: resp.pnlPct,
+                    pnlAmount: resp.pnlAmount,
+                    error: resp.ok ? nil : (resp.error ?? "分析失败")
+                )
+            }
+        case "sectors":
+            sectorsLoading = false
+            if resp.ok {
+                sectors = resp.sectors ?? []
+                sectorsUpdated = resp.ts
+            } else {
+                lastError = resp.error
             }
         case "health":
             quantHealthy = resp.ok

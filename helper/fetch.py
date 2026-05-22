@@ -3,9 +3,11 @@
 Stdin / stdout 协议：
 
     refresh           → {"ok":true,"type":"snapshot",...}
-    news <code>       → {"ok":true,"type":"news","code":"<code>","items":[...]}
+    news <code> <name>→ {"ok":true,"type":"news","code":"<code>","items":[...]}  # 按名称搜+相关度排序+利好利空
     chart <code>      → {"ok":true,"type":"chart","code":"<code>","ticks":[...]}
+    analyze <code> [cost] [shares] → {"ok":true,"type":"analyze",...}  # 单股/指数研判，3 分钟缓存
     article <url>     → {"ok":true,"type":"article","url":"...","title":"...","paragraphs":[...],...}
+    sectors           → {"ok":true,"type":"sectors","sectors":[...]}  # 新浪行业板块榜
     quant             → {"ok":true,"type":"quant","session":...,"market":...,"orders":[...]}
     quit              → 退出
 
@@ -150,14 +152,40 @@ EM_HEADERS = {
 }
 
 
-def fetch_news(code: str, page_size: int = 30) -> List[dict]:
-    """拉某只股票的最新新闻（按时间倒序）。"""
-    payload = (
-        '{"uid":"","keyword":"%s","type":["cmsArticleWebOld"],'
-        '"client":"web","clientVersion":"curr","clientType":"web",'
-        '"param":{"cmsArticleWebOld":{"searchScope":"default","sort":"time",'
-        '"pageIndex":1,"pageSize":%d,"preTag":"","postTag":""}}}'
-    ) % (code, page_size)
+# 新闻情绪关键词（从 quant.py _NEWS_BULL/_NEWS_BEAR 复制；纯字符串，helper venv 内即可用）
+_NEWS_BULL = (
+    "中标", "订单", "增持", "回购", "预增", "扭亏", "涨价", "提价", "签约", "合作",
+    "获批", "量产", "收购", "重组", "利好", "创新高", "超预期", "分红", "入选", "注入",
+    "突破", "签订", "投产", "提速", "放量",
+)
+_NEWS_BEAR = (
+    "减持", "亏损", "预减", "商誉", "立案", "调查", "问询", "处罚", "诉讼", "违规",
+    "质押", "平仓", "解禁", "退市", "终止", "失败", "风险提示", "变脸", "下滑", "警示",
+)
+
+
+def _news_sentiment(text: str) -> str:
+    """标题+摘要关键词净值 → bull / bear / neutral。"""
+    bull = sum(text.count(k) for k in _NEWS_BULL)
+    bear = sum(text.count(k) for k in _NEWS_BEAR)
+    if bull > bear:
+        return "bull"
+    if bear > bull:
+        return "bear"
+    return "neutral"
+
+
+def _em_search(keyword: str, page_size: int) -> List[dict]:
+    """东方财富 CMS 关键词搜索，返回原始 item 列表（失败返回 []）。"""
+    # 用 json.dumps 转义 keyword，避免名称含引号/反斜杠时拼出非法 JSON
+    payload = json.dumps({
+        "uid": "", "keyword": keyword, "type": ["cmsArticleWebOld"],
+        "client": "web", "clientVersion": "curr", "clientType": "web",
+        "param": {"cmsArticleWebOld": {
+            "searchScope": "default", "sort": "time",
+            "pageIndex": 1, "pageSize": page_size, "preTag": "", "postTag": "",
+        }},
+    }, ensure_ascii=False)
     try:
         r = requests.get(
             EM_NEWS_URL,
@@ -166,21 +194,42 @@ def fetch_news(code: str, page_size: int = 30) -> List[dict]:
             timeout=8,
         )
         body = r.text[r.text.index("(") + 1: r.text.rindex(")")]
-        data = json.loads(body)
-        items = data.get("result", {}).get("cmsArticleWebOld", []) or []
+        return json.loads(body).get("result", {}).get("cmsArticleWebOld", []) or []
     except Exception as e:
-        log(f"news fetch failed {code}: {e}")
+        log(f"news search failed {keyword}: {e}")
         return []
 
+
+def fetch_news(code: str, name: str = "", page_size: int = 30) -> List[dict]:
+    """拉某只股票的相关新闻：优先按名称搜（关联度高），不足补代码搜，
+    按 URL 去重（去掉 query 参数）、相关度+时间排序，并打利好/利空标签。
+    """
+    raw = _em_search(name, page_size) if name else []
+    if len(raw) < 5:   # 名称命中太少时补一轮代码搜
+        raw += _em_search(code, page_size)
+
+    seen = set()
     out = []
-    for it in items:
+    for it in raw:
+        url = it.get("url", "")
+        key = url.split("?", 1)[0]   # 去掉 from/_ 等 query 参数后去重
+        if not key or key in seen:
+            continue
+        seen.add(key)
+        title = _strip_html(it.get("title", ""))
+        summary = _strip_html(it.get("content", ""))
+        # 相关度：标题含名称 > 含代码 > 其他（泛市场文下沉）
+        relevance = 2 if (name and name in title) else 1 if code in title else 0
         out.append({
-            "title": _strip_html(it.get("title", "")),
-            "url": it.get("url", ""),
+            "title": title,
+            "url": url,
             "date": it.get("date", ""),
             "source": it.get("mediaName") or it.get("source") or "",
-            "summary": _strip_html(it.get("content", "")),
+            "summary": summary,
+            "sentiment": _news_sentiment(title + " " + summary),
+            "relevance": relevance,
         })
+    out.sort(key=lambda x: (x["relevance"], x["date"]), reverse=True)
     return out
 
 
@@ -237,6 +286,56 @@ def fetch_chart(code: str) -> dict:
 
 
 # ----------------- 主流程 -----------------
+
+# ----------------- 新浪行业板块 -----------------
+
+SINA_SECTOR_URL = "http://vip.stock.finance.sina.com.cn/q/view/newSinaHy.php"
+# 返回 JSON：{"key":"label,板块,公司家数,平均价格,涨跌额,涨跌幅,总成交量,总成交额,股票代码,个股-涨跌幅,个股-当前价,个股-涨跌额,股票名称", ...}
+_SECTOR_FIELDS = 13
+
+
+def _to_float(s: str) -> Optional[float]:
+    """安全转 float，失败返回 None。"""
+    try:
+        return float(s)
+    except (TypeError, ValueError):
+        return None
+
+
+def fetch_sectors() -> List[dict]:
+    """新浪行业板块实时榜：返回按涨跌幅降序的板块列表。
+    与 akshare stock_sector_spot(新浪行业) 同源，单次 HTTP（~100ms），不依赖 akshare。
+    """
+    resp = requests.get(SINA_SECTOR_URL, headers=SINA_HEADERS, timeout=8)
+    resp.encoding = "gbk"
+    text = resp.text
+    start = text.find("{")
+    if start < 0:
+        return []
+    data = json.loads(text[start:])
+    out: List[dict] = []
+    for raw in data.values():
+        parts = str(raw).split(",")
+        if len(parts) < _SECTOR_FIELDS:
+            continue
+        leader_code = parts[8].strip()
+        out.append({
+            "label": parts[0].strip(),
+            "name": parts[1].strip(),
+            "count": int(_to_float(parts[2]) or 0),
+            "avgPrice": _to_float(parts[3]),
+            "changePct": _to_float(parts[5]),
+            "volume": _to_float(parts[6]),
+            "turnover": _to_float(parts[7]),
+            "leaderCode": leader_code[-6:] if leader_code else None,
+            "leaderChangePct": _to_float(parts[9]),
+            "leaderPrice": _to_float(parts[10]),
+            "leaderName": parts[12].strip(),
+        })
+    # 涨跌幅降序；缺失值排末尾
+    out.sort(key=lambda s: (s["changePct"] is None, -(s["changePct"] or 0)))
+    return out
+
 
 def build_snapshot(holdings_path: Path) -> dict:
     """holdings_path 现在指 portfolio.json（App 维护的）。
@@ -383,8 +482,13 @@ import threading
 from runtime import find_vnpy_python, health_check
 
 QUANT_SCRIPT = str(Path(__file__).parent / "quant.py")
+ANALYZE_SCRIPT = str(Path(__file__).parent / "analyze_one.py")
 
 _quant_in_flight = False
+
+# 单股分析 3 分钟内存缓存：key = "code cost shares"（成本价/股数变化即失效，避免命中旧研判）
+_ANALYZE_CACHE: Dict[str, Tuple[float, dict]] = {}
+_ANALYZE_TTL = 180.0
 
 
 def _emit(payload: dict) -> None:
@@ -446,6 +550,53 @@ def _run_quant() -> dict:
     return {"ok": True, "type": "quant_pending", "ts": _now()}
 
 
+def _analyze_worker(args: List[str], cache_key: str) -> None:
+    """后台线程：跑 analyze_one.py，结果写入缓存并 emit。"""
+    code = args[0]
+    try:
+        vnpy_python = find_vnpy_python()
+        if vnpy_python is None:
+            _emit({"ok": False, "type": "analyze", "ts": _now(), "code": code,
+                   "error": "未找到 vnpy 项目。设置 STOCKBAR_VNPY_PATH 或在 config.json 配置 vnpy_path"})
+            return
+        try:
+            result = subprocess.run(
+                [str(vnpy_python), ANALYZE_SCRIPT, *args],
+                capture_output=True, text=True, timeout=30,
+            )
+        except subprocess.TimeoutExpired:
+            _emit({"ok": False, "type": "analyze", "ts": _now(), "code": code, "error": "分析超时 (>30s)"})
+            return
+        if result.returncode != 0 and not result.stdout.strip():
+            _emit({"ok": False, "type": "analyze", "ts": _now(), "code": code,
+                   "error": f"分析引擎退出码 {result.returncode}: {result.stderr[-200:]}"})
+            return
+        out = result.stdout.strip().split("\n")[-1] if result.stdout else ""
+        try:
+            payload = json.loads(out)
+        except Exception as e:
+            _emit({"ok": False, "type": "analyze", "ts": _now(), "code": code,
+                   "error": f"解析分析结果失败: {e}; raw={out[:200]}"})
+            return
+        if payload.get("ok"):
+            _ANALYZE_CACHE[cache_key] = (time.time(), payload)
+        _emit(payload)
+    except Exception as e:
+        _emit({"ok": False, "type": "analyze", "ts": _now(), "code": code, "error": f"分析调用失败: {e}"})
+
+
+def _run_analyze(args: List[str]) -> dict:
+    """单股分析：命中 3 分钟缓存则直接返回；否则后台跑 analyze_one.py。
+    缓存 key 含 cost/shares —— 改了成本价/股数会重新分析，不命中旧结果。"""
+    code = args[0]
+    cache_key = " ".join(args)
+    hit = _ANALYZE_CACHE.get(cache_key)
+    if hit and time.time() - hit[0] < _ANALYZE_TTL:
+        return hit[1]
+    threading.Thread(target=_analyze_worker, args=(args, cache_key), daemon=True).start()
+    return {"ok": True, "type": "analyze_pending", "ts": _now(), "code": code}
+
+
 def main() -> int:
     # 优先用 STOCKBAR_PORTFOLIO (JSON) ；老变量 STOCKBAR_HOLDINGS 作向后兼容
     portfolio_env = os.environ.get("STOCKBAR_PORTFOLIO")
@@ -479,7 +630,9 @@ def main() -> int:
                 if not args:
                     resp = {"ok": False, "type": "news", "ts": _now(), "error": "missing code"}
                 else:
-                    items = fetch_news(args[0])
+                    # news <code> <name...>：name 取剩余 join，兼容含空格的罕见名
+                    name = " ".join(args[1:]).strip()
+                    items = fetch_news(args[0], name)
                     resp = {"ok": True, "type": "news", "ts": _now(),
                             "code": args[0], "items": items}
             elif cmd == "chart":
@@ -497,6 +650,14 @@ def main() -> int:
                     art_url = " ".join(args)
                     data = article_mod.fetch(art_url)
                     resp = {"type": "article", "ts": _now(), **data}
+            elif cmd == "sectors":
+                resp = {"ok": True, "type": "sectors", "ts": _now(),
+                        "sectors": fetch_sectors()}
+            elif cmd == "analyze":
+                if not args:
+                    resp = {"ok": False, "type": "analyze", "ts": _now(), "error": "missing code"}
+                else:
+                    resp = _run_analyze(args)
             elif cmd == "quant":
                 resp = _run_quant()
             elif cmd == "health":
