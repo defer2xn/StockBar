@@ -15,21 +15,32 @@ struct IndicesTab: View {
                 timestamp: shortTime(model.lastUpdated)
             )
 
-            // 顶部指数卡（固定高度）+ 下方分时图填满剩余空间，避免大片空白
+            // 顶部指数卡 + 大盘研判 + 下方分时图
             VStack(spacing: DS.spaceL) {
                 indexGrid
+                MarketBriefCard(
+                    analysis: model.analysisByCode["000001"],
+                    isLoading: model.analyzingCodes.contains("000001")
+                )
                 chartCard
             }
             .padding(.horizontal, DS.spaceXL)
             .padding(.bottom, DS.spaceXL)
         }
-        .onAppear { autoSelectFirst() }
+        .onAppear { autoSelectFirst(); fetchMarketBrief() }
         .onChange(of: indices.count) { _, _ in autoSelectFirst() }
         .onReceive(NotificationCenter.default.publisher(for: .switchToIndicesTab)) { note in
             if let code = note.object as? String {
                 selectedCode = code
                 model.requestChart(code: code)
             }
+        }
+    }
+
+    /// 进入大盘页自动拉一次上证研判（单次固定调用，按需触发原则的明确例外）。
+    private func fetchMarketBrief() {
+        if model.analysisByCode["000001"] == nil && !model.analyzingCodes.contains("000001") {
+            model.requestAnalyze(code: "000001")
         }
     }
 

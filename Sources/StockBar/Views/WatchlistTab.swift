@@ -5,6 +5,7 @@ struct WatchlistTab: View {
     @EnvironmentObject private var portfolio: PortfolioStore
     @State private var selectedCode: String?
     @State private var sheet: ActiveSheet?
+    @State private var analysisShown = false
 
     private var items: [Quote] { model.watchlist }
 
@@ -40,10 +41,10 @@ struct WatchlistTab: View {
                 .padding(DS.spaceXL)
                 Spacer()
             } else {
-                // 顶部自选卡 + 下方分时图填满剩余空间，避免大片空白
+                // 顶部自选卡 + 研判卡（按需）+ 下方分时图
                 VStack(spacing: DS.spaceL) {
                     watchlistGrid
-                    chartCard
+                    analysisAndChart
                 }
                 .padding(.horizontal, DS.spaceXL)
                 .padding(.bottom, DS.spaceXL)
@@ -51,6 +52,7 @@ struct WatchlistTab: View {
         }
         .onAppear { autoSelectFirst() }
         .onChange(of: items.count) { _, _ in autoSelectFirst() }
+        .onChange(of: selectedCode) { _, _ in analysisShown = false }   // 切股自动收起研判
         .sheet(item: $sheet) { active in
             switch active {
             case .add:
@@ -90,6 +92,35 @@ struct WatchlistTab: View {
                     }
                 }
             }
+        }
+    }
+
+    /// 研判卡（按需）叠在分时图上方。未分析时显示醒目的分析入口条。
+    private var analysisAndChart: some View {
+        VStack(spacing: DS.spaceL) {
+            if analysisShown, let code = selectedCode {
+                StockAnalysisCard(
+                    code: code,
+                    analysis: model.analysisByCode[code],
+                    isLoading: model.analyzingCodes.contains(code),
+                    onClose: { analysisShown = false }
+                )
+            } else if let code = selectedCode {
+                AnalyzePromptBar(
+                    text: "研判「\(items.first { $0.code == code }?.name ?? "")」：能不能买、买点在哪？",
+                    action: triggerAnalysis
+                )
+            }
+            chartCard
+        }
+    }
+
+    /// 按需触发研判：自选不带成本价（买点分析），已有结果直接复用。
+    private func triggerAnalysis() {
+        guard let code = selectedCode else { return }
+        analysisShown = true
+        if model.analysisByCode[code] == nil {
+            model.requestAnalyze(code: code)
         }
     }
 

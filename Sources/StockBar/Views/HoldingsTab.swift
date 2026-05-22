@@ -5,6 +5,7 @@ struct HoldingsTab: View {
     @EnvironmentObject private var portfolio: PortfolioStore
     @State private var selectedCode: String?
     @State private var sheet: ActiveSheet?
+    @State private var analysisShown = false
 
     private var positions: [Position] { model.holdings?.positions ?? [] }
     private var holdings: Holdings? { model.holdings }
@@ -31,7 +32,13 @@ struct HoldingsTab: View {
                 onRefresh: { model.requestRefresh() },
                 timestamp: shortTime(model.lastUpdated),
                 addLabel: "加持仓",
-                onAdd: { sheet = .addPosition }
+                onAdd: { sheet = .addPosition },
+                onExportCSV: positions.isEmpty ? nil : {
+                    TableExport.saveCSV(rows: exportRows(), suggestedName: TableExport.defaultName("持仓"))
+                },
+                onExportClipboard: positions.isEmpty ? nil : {
+                    TableExport.copyTSV(rows: exportRows())
+                }
             )
 
             ScrollView {
@@ -46,7 +53,7 @@ struct HoldingsTab: View {
                             hint: "点击右上角「加持仓」开始记录"
                         )
                     }
-                    chartCard
+                    analysisAndChart
                 }
                 .padding(.horizontal, DS.spaceXL)
                 .padding(.bottom, DS.spaceXL)
@@ -56,6 +63,9 @@ struct HoldingsTab: View {
                 if let code = selectedCode { model.requestChart(code: code) }
             }
         }
+        .onAppear { autoSelectFirst() }
+        .onChange(of: positions.count) { _, _ in autoSelectFirst() }
+        .onChange(of: selectedCode) { _, _ in analysisShown = false }   // 切股自动收起研判
         .sheet(item: $sheet) { active in
             switch active {
             case .addPosition:
@@ -169,6 +179,45 @@ struct HoldingsTab: View {
         .cardStyle(padding: 0)
     }
 
+    // MARK: - 研判卡 + 分时图
+
+    /// 研判卡（按需，点「分析」才出）叠在分时图上方。未分析时显示醒目的分析入口条。
+    private var analysisAndChart: some View {
+        VStack(spacing: DS.spaceL) {
+            if analysisShown, let code = selectedCode {
+                StockAnalysisCard(
+                    code: code,
+                    analysis: model.analysisByCode[code],
+                    isLoading: model.analyzingCodes.contains(code),
+                    onClose: { analysisShown = false }
+                )
+            } else if let code = selectedCode {
+                AnalyzePromptBar(
+                    text: "研判「\(positions.first { $0.code == code }?.name ?? "")」：该持有还是止盈止损？",
+                    action: triggerAnalysis
+                )
+            }
+            chartCard
+        }
+    }
+
+    /// 按需触发研判：持仓带成本价 + 股数，已有结果直接复用（不重复跑）。
+    private func triggerAnalysis() {
+        guard let code = selectedCode else { return }
+        analysisShown = true
+        if model.analysisByCode[code] == nil {
+            let p = positions.first { $0.code == code }
+            model.requestAnalyze(code: code, costPrice: p?.costPrice, shares: p?.shares)
+        }
+    }
+
+    /// 首次进入 / 持仓变化后默认选中第一只（仅触发分时图，不自动跑分析）。
+    private func autoSelectFirst() {
+        guard selectedCode == nil, let first = positions.first?.code else { return }
+        selectedCode = first
+        model.requestChart(code: first)
+    }
+
     // MARK: - 分时图卡片
 
     private var chartCard: some View {
@@ -199,6 +248,38 @@ struct HoldingsTab: View {
     private func editPosition(code: String) {
         guard let p = portfolio.positions.first(where: { $0.code == code }) else { return }
         sheet = .editPosition(p)
+    }
+
+    // MARK: - 导出
+
+    /// 导出行：表头 + 各持仓，列对齐持仓明细表格。
+    private func exportRows() -> [[String]] {
+        var rows: [[String]] = [["代码", "名称", "现价", "涨跌幅(%)", "持仓股数", "成本价", "市值", "今日盈亏", "总盈亏"]]
+        for p in positions {
+            rows.append([
+                p.code,
+                p.name,
+                num(p.price, 3),
+                num(p.changePct, 2),
+                shares(p.shares),
+                num(p.costPrice, 3),
+                num(p.marketValue, 0),
+                num(p.pnlToday, 2),
+                num(p.pnlTotal, 2),
+            ])
+        }
+        return rows
+    }
+
+    private func num(_ v: Double?, _ decimals: Int) -> String {
+        guard let v else { return "" }
+        return String(format: "%.\(decimals)f", v)
+    }
+
+    private func shares(_ s: Double?) -> String {
+        guard let s else { return "" }
+        if s == s.rounded() { return String(Int(s)) }
+        return String(format: "%.2f", s)
     }
 }
 

@@ -23,6 +23,10 @@ struct NewsTab: View {
                 out.append(.init(code: code, name: q.name, kind: .watch))
             }
         }
+        // 大盘入口：上证指数，看市场级新闻（利好/利空、政策面）
+        if seen.insert("000001").inserted {
+            out.append(.init(code: "000001", name: "上证指数", kind: .market))
+        }
         return out
     }
 
@@ -198,7 +202,7 @@ private struct StockRef: Identifiable, Hashable {
 
     var id: String { code }
 
-    enum Kind { case holding, watch }
+    enum Kind { case holding, watch, market }
 }
 
 // MARK: - Chip
@@ -207,9 +211,17 @@ private struct StockChip: View {
     let stock: StockRef
     let selected: Bool
 
+    private var chipIcon: String {
+        switch stock.kind {
+        case .holding: return "briefcase.fill"
+        case .watch:   return "star.fill"
+        case .market:  return "chart.bar.fill"
+        }
+    }
+
     var body: some View {
         HStack(spacing: 6) {
-            Image(systemName: stock.kind == .holding ? "briefcase.fill" : "star.fill")
+            Image(systemName: chipIcon)
                 .font(.system(size: 10, weight: .semibold))
                 .foregroundColor(selected ? .white : DS.accent)
             Text(stock.name)
@@ -246,6 +258,14 @@ private struct NewsCard: View {
                 .multilineTextAlignment(.leading)
                 .foregroundColor(.primary)
             HStack(spacing: 6) {
+                if let tag = sentimentTag {
+                    Text(tag.0)
+                        .font(.system(size: 10, weight: .bold))
+                        .foregroundColor(tag.1)
+                        .padding(.horizontal, 5)
+                        .padding(.vertical, 1)
+                        .background(Capsule().fill(tag.1.opacity(0.14)))
+                }
                 Text(formattedDate(item.date))
                     .font(.caption)
                     .foregroundStyle(.tertiary)
@@ -270,6 +290,15 @@ private struct NewsCard: View {
         )
         .contentShape(Rectangle())
         .animation(.easeInOut(duration: 0.12), value: selected)
+    }
+
+    /// 利好红 / 利空绿（A 股配色）；中性不显示，保持列表清爽。
+    private var sentimentTag: (String, Color)? {
+        switch item.sentiment {
+        case "bull": return ("利好", DS.up)
+        case "bear": return ("利空", DS.down)
+        default: return nil
+        }
     }
 
     private func formattedDate(_ raw: String) -> String {
