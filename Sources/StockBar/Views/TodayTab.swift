@@ -38,7 +38,7 @@ struct TodayTab: View {
             ScrollView {
                 VStack(spacing: DS.spaceL) {
                     TodayHero()
-                    threeColumnGrid
+                    dashboard
                 }
                 .padding(.horizontal, DS.spaceXL)
                 .padding(.bottom, DS.spaceXL)
@@ -58,15 +58,18 @@ struct TodayTab: View {
         return "\(session)  ·  一眼看盘"
     }
 
-    private var threeColumnGrid: some View {
-        LazyVGrid(
-            columns: [GridItem(.adaptive(minimum: 280, maximum: .infinity), spacing: DS.spaceL)],
-            alignment: .leading,
-            spacing: DS.spaceL
-        ) {
-            OrderShortlistCard()
-            IndicesGridCard()
+    /// 两栏看板：左栏竖叠「量化建议 + 大盘」（弹性宽度），右栏「今日热点」新闻栏（固定 360）。
+    /// 解决三卡等行排布时高度差导致的大片空白。
+    private var dashboard: some View {
+        HStack(alignment: .top, spacing: DS.spaceL) {
+            VStack(spacing: DS.spaceL) {
+                OrderShortlistCard()
+                IndicesGridCard()
+            }
+            .frame(maxWidth: .infinity, alignment: .top)
+
             HotNewsCard()
+                .frame(width: 360)
         }
     }
 
@@ -399,6 +402,7 @@ private struct IndicesGridCard: View {
                     .foregroundColor(DS.tint(for: q.changePct))
                 miniChart(for: q)
                     .frame(height: 50)
+                    .clipped()
             }
             .padding(DS.spaceS)
             .frame(maxWidth: .infinity, alignment: .leading)
