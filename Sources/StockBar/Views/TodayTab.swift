@@ -455,7 +455,12 @@ private struct HotNewsCard: View {
                 pairs.append((code: code, item: item))
             }
         }
-        pairs.sort { $0.item.date > $1.item.date }
+        // 先按相关度（个股点名 > 正文/代码命中 > 泛市场）再按日期，泛市场新闻不抢前排
+        pairs.sort {
+            let r0 = $0.item.relevance ?? 0
+            let r1 = $1.item.relevance ?? 0
+            return r0 != r1 ? r0 > r1 : $0.item.date > $1.item.date
+        }
         var seen = Set<String>()
         var out: [(code: String, item: NewsItem)] = []
         for p in pairs {
@@ -532,7 +537,12 @@ private struct HotNewsCard: View {
                     .lineLimit(2)
                     .multilineTextAlignment(.leading)
                 HStack(spacing: DS.spaceS) {
-                    TagBadge(text: nameMap[code] ?? code, color: .accentColor)
+                    // 泛市场新闻（relevance 0）不贴个股名——它只是搜该股时东财顺带返回的大盘资讯
+                    if (item.relevance ?? 0) == 0 {
+                        TagBadge(text: "市场", color: .secondary)
+                    } else {
+                        TagBadge(text: nameMap[code] ?? code, color: .accentColor)
+                    }
                     Text(item.date)
                         .font(.caption2)
                         .foregroundStyle(.secondary)

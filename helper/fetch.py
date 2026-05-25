@@ -218,8 +218,16 @@ def fetch_news(code: str, name: str = "", page_size: int = 30) -> List[dict]:
         seen.add(key)
         title = _strip_html(it.get("title", ""))
         summary = _strip_html(it.get("content", ""))
-        # 相关度：标题含名称 > 含代码 > 其他（泛市场文下沉）
-        relevance = 2 if (name and name in title) else 1 if code in title else 0
+        # 相关度：标题点名 > 正文点名/代码命中 > 其他（泛市场文下沉，relevance=0）
+        # 注意：东财搜索返回的是它编辑后台“关联”到该股的文章，标题/正文常不含股名，
+        # 这类只能算泛市场（0），不应被当成个股新闻贴标签。
+        text = title + " " + summary
+        if name and name in title:
+            relevance = 2
+        elif (name and name in summary) or (code and code in text):
+            relevance = 1
+        else:
+            relevance = 0
         out.append({
             "title": title,
             "url": url,
