@@ -13,9 +13,13 @@ struct PageHeader: View {
     /// 各 Tab 自己的刷新状态（量化/新闻 不走 snapshot 刷新路径）。
     /// 不传则回退到全局 model.isRefreshing（行情类 Tab 用）。
     var isRefreshing: Bool? = nil
+    /// 可选的「导出」菜单：存为 CSV / 复制到剪贴板。两个都传时才显示菜单。
+    var onExportCSV: (() -> Void)? = nil
+    var onExportClipboard: (() -> Void)? = nil
 
     @EnvironmentObject private var model: AppModel
     @State private var spin = false
+    @State private var showCopied = false
 
     /// 当前是否处于刷新中：优先用本 Tab 传入的状态，否则用全局行情刷新状态
     private var refreshing: Bool { isRefreshing ?? model.isRefreshing }
@@ -51,6 +55,39 @@ struct PageHeader: View {
                 }
                 .buttonStyle(.borderedProminent)
                 .controlSize(.small)
+            }
+            if let onExportCSV {
+                if showCopied {
+                    Text("已复制")
+                        .font(.caption2)
+                        .foregroundStyle(.secondary)
+                        .transition(.opacity)
+                }
+                Menu {
+                    Button {
+                        onExportCSV()
+                    } label: {
+                        Label("存为 CSV…", systemImage: "doc")
+                    }
+                    if let onExportClipboard {
+                        Button {
+                            onExportClipboard()
+                            withAnimation { showCopied = true }
+                            DispatchQueue.main.asyncAfter(deadline: .now() + 1.6) {
+                                withAnimation { showCopied = false }
+                            }
+                        } label: {
+                            Label("复制到剪贴板", systemImage: "doc.on.clipboard")
+                        }
+                    }
+                } label: {
+                    Label("导出", systemImage: "square.and.arrow.up")
+                        .font(.system(size: 12, weight: .semibold))
+                }
+                .menuStyle(.borderlessButton)
+                .controlSize(.small)
+                .fixedSize()
+                .help("导出当前表格")
             }
             Button(action: onRefresh) {
                 HStack(spacing: 4) {

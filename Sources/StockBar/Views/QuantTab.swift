@@ -55,7 +55,13 @@ struct QuantTab: View {
                 counter: orderCounter,
                 onRefresh: { model.requestQuant() },
                 timestamp: snap.map { shortTime($0.ts) },
-                isRefreshing: model.quantLoading
+                isRefreshing: model.quantLoading,
+                onExportCSV: (snap?.orders.isEmpty == false) ? {
+                    TableExport.saveCSV(rows: exportRows(), suggestedName: TableExport.defaultName("量化订单"))
+                } : nil,
+                onExportClipboard: (snap?.orders.isEmpty == false) ? {
+                    TableExport.copyTSV(rows: exportRows())
+                } : nil
             )
 
             // 健康检查不通过（vnpy 不可达）→ banner 警告，不阻塞 UI 但提醒
@@ -104,6 +110,29 @@ struct QuantTab: View {
     private var orderCounter: String? {
         guard let s = snap, !s.orders.isEmpty else { return nil }
         return "\(s.orders.count) 笔（\(s.summary.buys) 买 / \(s.summary.sells) 卖）"
+    }
+
+    // MARK: - 导出
+
+    /// 导出行：表头 + 各订单（按当前排序），列对齐订单清单表格。
+    private func exportRows() -> [[String]] {
+        var rows: [[String]] = [["代码", "名称", "操作", "数量", "操作价", "止盈", "止损", "盈亏比", "评分", "信号"]]
+        for o in sortedOrders {
+            let dec = o.isETF ? 3 : 2
+            rows.append([
+                o.code,
+                o.name,
+                o.action,
+                String(o.shares),
+                String(format: "%.\(dec)f", o.price),
+                o.tp.map { String(format: "%.\(dec)f", $0) } ?? "",
+                o.sl.map { String(format: "%.\(dec)f", $0) } ?? "",
+                o.rr.map { String(format: "%.2f", $0) } ?? "",
+                o.score.map(String.init) ?? "",
+                o.reason,
+            ])
+        }
+        return rows
     }
 
     // MARK: - 主体
@@ -332,7 +361,7 @@ private struct OrderHeader: View {
             Cell("名称", width: 120, align: .leading, indicator: nil)
             Cell("操作", width: 70,  align: .leading, indicator: activeSort == .actionThenScore ? "·" : nil)
             Cell("数量", width: 70,  align: .trailing, indicator: nil)
-            Cell("买价", width: 80,  align: .trailing, indicator: nil)
+            Cell("操作价", width: 80,  align: .trailing, indicator: nil)
             Cell("止盈", width: 80,  align: .trailing, indicator: nil)
             Cell("止损", width: 80,  align: .trailing, indicator: nil)
             Cell("盈亏比", width: 56, align: .trailing, indicator: activeSort == .rrDesc ? "↓" : nil)
@@ -353,7 +382,6 @@ private struct OrderHeader: View {
             self.text = t; self.width = width; self.align = align; self.indicator = indicator
         }
         var body: some View {
-            let isActive = indicator != nil
             let composed: AnyView = {
                 if let i = indicator {
                     return AnyView(

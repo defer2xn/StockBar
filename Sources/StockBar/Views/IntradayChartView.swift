@@ -13,7 +13,9 @@ struct IntradayChartView: View {
                 header
             }
             chart
-                .frame(minHeight: compact ? 60 : 220)
+                // compact 时不设 minHeight，交给调用方的固定高度（如大盘 mini 卡 50pt）；
+                // 否则写死 60 会大于父级高度导致面积图向下溢出。
+                .frame(minHeight: compact ? nil : 220)
         }
     }
 

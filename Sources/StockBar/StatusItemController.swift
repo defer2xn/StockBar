@@ -19,7 +19,7 @@ final class StatusItemController: NSObject, NSMenuDelegate {
         super.init()
 
         if let button = statusItem.button {
-            let img = NSImage(systemSymbolName: "chart.line.uptrend.xyaxis",
+            let img = NSImage(systemSymbolName: "binoculars",
                               accessibilityDescription: "StockBar")
             img?.isTemplate = true
             button.image = img
