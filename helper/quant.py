@@ -371,11 +371,12 @@ def _ak_retry(fn, tries: int = 1, sleep: float = 0.8):
 _HOT_SECTOR_CACHE: dict | None = None
 
 
-def fetch_hot_sectors(top_sectors: int = 8, max_per: int = 120) -> dict:
-    """新浪行业涨幅榜 → {成分股代码: (板块名, 加成分)}。
+def fetch_hot_sectors(top_sectors: int = 8, top_per: int = 25) -> dict:
+    """新浪行业涨幅榜 → {成分股代码: (板块名, 加成分, 股票名)}。
 
     数据全走 Sina（stock_sector_spot / stock_sector_detail），比 eastmoney push2 稳。
-    取相对最强的前 N 个行业（含下跌日的"最抗跌"），成分股命中即热点加分。失败返回 {}。
+    取相对最强的前 N 个行业（含下跌日的"最抗跌"），每个行业按成交额取最活跃的前 top_per 只。
+    既是评分加分映射，也是候选股票池来源（替代老登蓝筹池）。失败返回 {}。
     """
     global _HOT_SECTOR_CACHE
     if _HOT_SECTOR_CACHE is not None:
@@ -397,10 +398,13 @@ def fetch_hot_sectors(top_sectors: int = 8, max_per: int = 120) -> dict:
             )
             if det is None or "code" not in det.columns:
                 continue
-            for c in det["code"].head(max_per):
-                code = str(c).strip().zfill(6)
+            if "amount" in det.columns:     # 按成交额取最活跃的，过滤掉冷门票
+                det = det.sort_values("amount", ascending=False)
+            for _, r in det.head(top_per).iterrows():
+                code = str(r.get("code", "")).strip().zfill(6)
+                name = str(r.get("name", "")).strip()
                 if code and code not in out:   # 高排名行业优先占位
-                    out[code] = (sector, bonus)
+                    out[code] = (sector, bonus, name)
     _HOT_SECTOR_CACHE = out
     log(f"hot sectors: {len(out)} 只成分股")
     return out
@@ -492,7 +496,7 @@ def enrich_top_candidates(scored: list, hot_sectors: dict) -> list:
             sigs = list(detail.get("signals", []))
             hit = hot_sectors.get(code)
             if hit:
-                sector_name, bonus = hit
+                sector_name, bonus, _hot_name = hit
                 dims["hotness"] = min(10, dims["hotness"] + bonus)
                 sigs.append(f"🔥 强势板块：{sector_name}")
             d6, news_sigs = score_stock_news(code)
@@ -980,7 +984,7 @@ def main():
     hot_sectors = fetch_hot_sectors()
     if hot_sectors:
         sector_names = []
-        for _c, (sn, _b) in hot_sectors.items():
+        for _c, (sn, _b, _n) in hot_sectors.items():
             if sn not in sector_names:
                 sector_names.append(sn)
         notes.append("强势板块：" + "/".join(sector_names[:3]))
@@ -1012,18 +1016,19 @@ def main():
             candidates.append((c, n))
             seen.add(c)
             forced_codes.add(c)
-    # 3) A 股龙头池（必扫）
-    for c, n in STOCK_UNIVERSE:
-        if c not in seen and c not in held_codes and not is_risky_code(c):
-            candidates.append((c, n))
+    # 3) 热门板块成分股（参与 L1 预筛，挑"热板 + 今日回调"）—— 替代老登蓝筹池
+    for c, (_sector, _bonus, hot_name) in hot_sectors.items():
+        if c not in seen and c not in held_codes and not is_risky_code(c) and not is_risky_name(hot_name):
+            candidates.append((c, hot_name or c))
             seen.add(c)
-            forced_codes.add(c)
-    # 4) 沪深300 成分（参与 L1 预筛）
-    for c, n in get_hs300():
-        if c not in seen and c not in held_codes and not is_risky_name(n):
-            candidates.append((c, n))
-            seen.add(c)
-    log(f"candidates total (incl HS300): {len(candidates)}, forced: {len(forced_codes)}")
+    # 4) 沪深300 兜底：仅当热门板块接口失败（候选过薄）时启用
+    if not hot_sectors:
+        for c, n in get_hs300():
+            if c not in seen and c not in held_codes and not is_risky_name(n):
+                candidates.append((c, n))
+                seen.add(c)
+        notes.append("板块数据缺失 回退沪深300")
+    log(f"candidates total: {len(candidates)}, hot-sector: {len(hot_sectors)}, forced: {len(forced_codes)}")
 
     # ---- L1 预筛：用 Sina 批量 spot 一次拉所有当日涨跌幅 ----
     spot_codes = [c for c, _ in candidates if c not in forced_codes]
