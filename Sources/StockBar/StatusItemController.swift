@@ -19,13 +19,22 @@ final class StatusItemController: NSObject, NSMenuDelegate {
         super.init()
 
         if let button = statusItem.button {
-            let img = NSImage(systemSymbolName: "binoculars",
-                              accessibilityDescription: "StockBar")
-            img?.isTemplate = true
-            button.image = img
+            button.image = Self.makeMenuBarIcon()
         }
         menu.delegate = self
         statusItem.menu = menu
+    }
+
+    // MARK: - 菜单栏图标
+
+    /// 描边望远镜（binoculars），单色模板图随明暗模式自动反色
+    /// 用细笔画描边款替代实心剪影，与菜单栏其它描边系图标（盾牌/小人/Wi-Fi）统一气质
+    private static func makeMenuBarIcon() -> NSImage {
+        let config = NSImage.SymbolConfiguration(pointSize: 14, weight: .regular)
+        let symbol = NSImage(systemSymbolName: "binoculars", accessibilityDescription: "StockBar")?
+            .withSymbolConfiguration(config)
+        symbol?.isTemplate = true
+        return symbol ?? NSImage()
     }
 
     // MARK: - NSMenuDelegate
