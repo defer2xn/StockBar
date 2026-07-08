@@ -88,6 +88,7 @@ final class HelperProcess {
         var env = ProcessInfo.processInfo.environment
         env["STOCKBAR_PORTFOLIO"] = portfolioPath
         env["PYTHONUNBUFFERED"] = "1"
+        env["PYTHONDONTWRITEBYTECODE"] = "1"
         proc.environment = env
 
         let stdin = Pipe()
